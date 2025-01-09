@@ -252,21 +252,26 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) e
 	}
 }
 
-func (inter *Intermediary) DoRequest(request *MyRequest, isConnClosed bool) (*http.Response, error) {
-	server, err := inter.connectTarget(request, isConnClosed)
+func (inter *Intermediary) DoRequest(request *MyRequest, isRetry bool) (*http.Response, error) {
+	server, err := inter.connectTarget(request, isRetry)
 	if err != nil {
 		return nil, err
 	}
 
 	err = request.raw.Write(server)
 	if err != nil {
-		if err == net.ErrClosed {
+		if !isRetry {
 			// 重试
 			return inter.DoRequest(request, true)
 		}
 		return nil, err
 	}
-	return server.ReadResponse(request.raw)
+
+	resp, err := server.ReadResponse(request.raw)
+	if err != nil && !isRetry {
+		return inter.DoRequest(request, true)
+	}
+	return resp, err
 }
 
 func (inter *Intermediary) connectTarget(request *MyRequest, isConnClosed bool) (*Server, error) {
