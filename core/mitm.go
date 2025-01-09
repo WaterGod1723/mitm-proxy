@@ -117,7 +117,7 @@ func (c *Container) Start(addr string) {
 		time.Sleep(time.Second * 10)
 		return
 	}
-	fmt.Println("server on: http://localhost:8003", listener)
+	fmt.Println("server on: http://localhost:8003")
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
