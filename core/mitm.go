@@ -198,6 +198,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		err = resp.Write(&inter.client)
 		if err != nil {
 			log.Println("write to client error", err)
+			return err
 		}
 		log.Println((*inter.client.conn).RemoteAddr(), req.URL, resp.Status)
 
