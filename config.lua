@@ -1,4 +1,4 @@
--- 协议、主机、地址重写, 该函数会被代理程序调用，用于protocol, host, path这三个值的重写
+-- 协议、主机、地址重写, 该函数会被代理程序调用，用于protocol, host, path这三个值的重写,如将http,www.baidu.com,/search，可以重写为https,localhost:8080,/hhh
 function GoRequest(protocol, host, path)
   return protocol, host, path
 end
