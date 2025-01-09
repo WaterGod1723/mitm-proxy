@@ -7,7 +7,7 @@ local hostList = {
     '100.22.22.22',
 }
 
--- 定义 API 列表和主机列表
+-- 定义 API 列表和主机列表，不在apiList中的请求路径将会被重写指向protalAddr中的地址
 local apiList = {
     '/api/v1',
     '/api/v2',
