@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	core "github.com/WaterGod1723/mitm-proxy/mitm/core"
+	"github.com/WaterGod1723/mitm-proxy/core"
 
 	lua "github.com/yuin/gopher-lua"
 )
