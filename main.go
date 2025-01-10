@@ -18,6 +18,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
+// test
 var luaScript string
 var luaPool = sync.Pool{
 	New: func() interface{} {
