@@ -40,6 +40,10 @@ func (w *ResponseWriter) Write(data []byte) (int, error) {
 		return 0, err
 	}
 
+	if len(data) > 0 && w.header.Get("Content-type") == "" {
+		w.header.Set("Content-type", "text/plain")
+	}
+
 	// 写入头部
 	if w.header != nil {
 		// 如果未设置 Content-Length 且未启用分块传输，则根据数据大小决定
