@@ -1,9 +1,3 @@
-module mitm
+module github.com/WaterGod1723/mitm-proxy/mitm
 
 go 1.22.1
-
-require (
-	github.com/yuin/gopher-lua v1.1.1
-	golang.org/x/text v0.4.0 // indirect
-	gopkg.in/sourcemap.v1 v1.0.5 // indirect
-)

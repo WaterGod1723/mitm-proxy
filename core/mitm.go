@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mitm/util"
 	"net"
 	"net/http"
 	"strings"
@@ -181,7 +180,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 
 		resp, err := inter.DoRequest(mReq, false)
 		if err != nil {
-			ww := util.NewResponseWriter(&inter.client)
+			ww := NewResponseWriter(&inter.client)
 			ww.SetStatus(http.StatusBadGateway)
 			ww.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			ww.Write([]byte(err.Error()))
