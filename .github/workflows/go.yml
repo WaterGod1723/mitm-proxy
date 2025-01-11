@@ -21,11 +21,26 @@ jobs:
     - name: Build examples/main.go
       run: go build -o examples/main.exe examples/main.go
 
+    - name: Package build artifacts
+      run: |
+        # 创建一个临时目录
+        mkdir -p dist
+
+        # 复制编译产物到 dist 目录
+        cp examples/main.exe dist/
+
+        # 复制 examples 目录下的非 Go 相关文件到 dist 目录
+        cp examples/cert/* dist/
+        cp examples/config.lua dist/
+        cp examples/inject.html dist/
+
+        # 打包 dist 目录为 zip 文件
+        cd dist
+        zip -r ../dist.zip *
+        cd ..
+
     - name: Upload build artifact
       uses: actions/upload-artifact@v3
       with:
-        name: main.exe
-        path: examples/main.exe
-
-    - name: Test
-      run: go test -v ./...
+        name: dist
+        path: dist.zip
