@@ -7,7 +7,49 @@ on:
     branches: [ "main" ]
 
 jobs:
+name: Go
 
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+
+    - name: Build examples/main.go
+      run: go build -o examples/main.exe examples/main.go
+
+    - name: Create dist directory
+      run: mkdir -p dist
+
+    - name: Copy build artifacts to dist
+      run: |
+        # 复制编译产物到 dist 目录
+        cp examples/main.exe dist/
+
+        # 复制 examples 目录下的非 Go 相关文件到 dist 目录，保留 cert 目录结构
+        cp -r examples/cert dist/
+        cp examples/config.lua dist/
+        cp examples/inject.html dist/
+
+    - name: Commit and push dist directory
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add dist
+        git commit -m "Add compiled artifacts to dist directory [skip ci]"
+        git push origin main
   build:
     runs-on: windows-latest
     steps:
