@@ -1,0 +1,25 @@
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: windows-latest  # 使用 Windows 环境
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'  # 使用 Go 1.22 版本
+
+    - name: Build examples/main.go
+      run: go build -o examples/main.exe examples/main.go  # Windows 下可执行文件后缀为 .exe
+
+    - name: Test
+      run: go test -v ./...
