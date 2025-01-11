@@ -1,0 +1,199 @@
+<script>
+  (function () {
+    const port = '{{port}}';
+    // 创建悬浮按钮的容器
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    // 创建 Shadow DOM
+    const shadow = container.attachShadow({ mode: 'open' });
+
+    // 创建悬浮按钮
+    const floatingButton = document.createElement('div');
+    floatingButton.id = 'floating-button';
+    floatingButton.textContent = '⚙️'; // 使用齿轮图标
+
+    // 创建配置面板
+    const configPanel = document.createElement('div');
+    configPanel.id = 'config-panel';
+
+    // 创建 Switch 按钮和文字
+    const switchContainer = document.createElement('div');
+    switchContainer.style.display = 'flex';
+    switchContainer.style.alignItems = 'center';
+    switchContainer.style.gap = '10px'; // 设置文字和按钮之间的间距
+
+    const switchLabel = document.createElement('label');
+    switchLabel.className = 'switch';
+    const switchInput = document.createElement('input');
+    switchInput.type = 'checkbox';
+    switchInput.id = 'toggle-switch';
+    const switchSlider = document.createElement('span');
+    switchSlider.className = 'slider';
+
+    // 添加文字“跨域”
+    const switchText = document.createElement('span');
+    switchText.textContent = '跨域';
+    switchText.style.fontSize = '14px';
+    switchText.style.color = '#333';
+
+    // 将 Switch 按钮和文字添加到容器中
+    switchLabel.appendChild(switchInput);
+    switchLabel.appendChild(switchSlider);
+    switchContainer.appendChild(switchLabel);
+    switchContainer.appendChild(switchText);
+
+    // 将容器添加到配置面板
+    configPanel.appendChild(switchContainer);
+    configPanel.style.display = 'none'
+
+    // 将按钮和配置面板添加到 Shadow DOM
+    shadow.appendChild(floatingButton);
+    floatingButton.appendChild(configPanel);
+
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+        #floating-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background-color: #007bff;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            user-select: none;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s ease;
+        }
+        #floating-button:hover {
+            background-color: #0056b3;
+        }
+        #config-panel {
+            position: absolute;
+            bottom: 70px;
+            right: 0;
+            width: 200px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            display: none;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #007bff;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+    `;
+    shadow.appendChild(style);
+
+    // 拖拽功能
+    let isDragging = false;
+    let isDragged = false;
+    let offsetX, offsetY;
+
+    floatingButton.addEventListener('mousedown', function (e) {
+      isDragging = true;
+      offsetX = e.clientX - floatingButton.getBoundingClientRect().left;
+      offsetY = e.clientY - floatingButton.getBoundingClientRect().top;
+    });
+
+    document.addEventListener('mousemove', function (e) {
+      if (isDragging) {
+        floatingButton.style.left = `${e.clientX - offsetX}px`;
+        floatingButton.style.top = `${e.clientY - offsetY}px`;
+        floatingButton.style.right = 'unset';
+        floatingButton.style.bottom = 'unset';
+        isDragged = true;
+      }
+    });
+
+    document.addEventListener('mouseup', function () {
+      isDragging = false;
+    });
+
+    // 点击展开配置页
+    floatingButton.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (isDragged) {
+        isDragged = false;
+        return;
+      }
+
+      if (configPanel.style.display === 'block') {
+        configPanel.style.display = 'none';
+      } else {
+        configPanel.style.display = 'block';
+        fetch(`http://localhost:${port}/can-cors`)
+          .then((e) => e.text())
+          .then((e) => {
+            if (e === 'true') {
+              switchInput.checked = true;
+            } else {
+              switchInput.checked = false;
+            }
+          });
+      }
+    });
+
+    // 点击页面其他区域关闭配置页
+    document.addEventListener('click', function () {
+      configPanel.style.display = 'none';
+    });
+
+    // 阻止配置页内的点击事件冒泡
+    configPanel.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+
+    // Switch 按钮的点击事件
+    switchInput.addEventListener('change', function () {
+      if (switchInput.checked) {
+        fetch(`http://localhost:${port}/open-cors`);
+      } else {
+        fetch(`http://localhost:${port}/close-cors`);
+      }
+    });
+  })();
+</script>
