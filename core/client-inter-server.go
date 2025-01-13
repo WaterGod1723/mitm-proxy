@@ -71,9 +71,6 @@ type Intermediary struct {
 	server map[string]*Server
 }
 
-// [协议，代理地址，账号，密码]
-type ProxyArray = [4]string
-
 func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) error) {
 	(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 	for {

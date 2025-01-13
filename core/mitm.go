@@ -22,6 +22,9 @@ var mapPool = sync.Pool{
 
 type ResponseWriteFunc func(w *ResponseWriter) error
 
+// [协议，代理地址，账号，密码]
+type ProxyArray = [4]string
+
 type Container struct {
 	inters       map[int]*Intermediary
 	count        int
