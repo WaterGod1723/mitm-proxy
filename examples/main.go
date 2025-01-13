@@ -1,10 +1,7 @@
 package main
 
 import (
-	"compress/gzip"
-	"compress/zlib"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -30,7 +27,7 @@ var luaPool = sync.Pool{
 		return L
 	},
 }
-var injectScript string
+var injectHTML string
 var isAllowedCors = true
 
 var proxyCache sync.Map
@@ -46,22 +43,17 @@ func init() {
 	if err != nil {
 		log.Fatal("read config error", err)
 	}
-	injectScript = string(injectScriptByte)
+	injectHTML = string(injectScriptByte)
 }
 
 func main() {
 	addr := flag.String("addr", "0.0.0.0:8003", "代理服务地址,0.0.0.0监听所有网卡,http协议")
 	port := strings.Split(*addr, ":")[1]
-	injectScript = strings.ReplaceAll(injectScript, "{{port}}", port)
+	injectHTML = strings.ReplaceAll(injectHTML, "{{port}}", port)
 
 	flag.Parse()
 	c := core.NewMITM()
 	c.ProcessRequest(func(req *http.Request) core.ResponseWriteFunc {
-		req.Header.Set("accept-encoding", "gzip")
-		// if req.Method == http.MethodOptions && isAllowedCors {
-		// 	return handleCors()
-		// }
-
 		if req.Host == "localhost:"+port {
 			return mangeRouter(req)
 		}
@@ -84,16 +76,16 @@ func main() {
 		return LuaGetProxy(host)
 	})
 
+	c.InsertHTMLToHTMLBody(func(resp *http.Response) string {
+		return injectHTML
+	})
+
 	c.ProcessResponse(func(resp *http.Response) core.ResponseWriteFunc {
-		// if isAllowedCors {
-		// 	resp.Header.Set("Access-Control-Allow-Origin", "*")
-		// }
-		err := InsertStringToHTMLBody(resp, injectScript)
-		if err != nil {
+		if resp.StatusCode == http.StatusInternalServerError {
 			return func(ww io.Writer) error {
 				w := core.NewResponseWriter(ww)
 				w.SetStatus(http.StatusInternalServerError)
-				w.Write([]byte("proxy decompress html response body error"))
+				w.Write([]byte("server error----from mitm-proxy"))
 				return nil
 			}
 		}
@@ -159,40 +151,6 @@ func LuaRewriteReq(uri *[3]string) {
 	L.Pop(3)
 }
 
-// InsertStringToHTMLBody 判断响应是否为 HTML，如果是，则在 </body> 前插入指定字符串
-func InsertStringToHTMLBody(resp *http.Response, insertString string) error {
-	// 检查 Content-Type 是否为 HTML
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "text/html") {
-		return nil // 不是 HTML，直接返回原响应
-	}
-
-	// 在 </body> 标签前插入指定字符串
-	bodyStr, err := DecompressBody(resp)
-	if err != nil {
-		return err
-	}
-	bodyTagIndex := strings.LastIndex(bodyStr, "</body>")
-	if bodyTagIndex == -1 {
-		// 构建新的响应体
-		newBody := io.NopCloser(strings.NewReader(bodyStr))
-		resp.Body = newBody
-		// 如果没有找到 </body> 标签，直接返回原响应
-		return nil
-	}
-
-	// 构建新的响应体
-	newBodyStr := bodyStr[:bodyTagIndex] + insertString + bodyStr[bodyTagIndex:]
-	newBody := io.NopCloser(strings.NewReader(newBodyStr))
-
-	// 更新响应体
-	resp.Body = newBody
-	resp.ContentLength = int64(len(newBodyStr))
-	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBodyStr)))
-
-	return nil
-}
-
 func handleCors() core.ResponseWriteFunc {
 	return func(ww io.Writer) error {
 		w := core.NewResponseWriter(ww)
@@ -232,39 +190,4 @@ func mangeRouter(req *http.Request) core.ResponseWriteFunc {
 		w.Write([]byte("ok"))
 		return nil
 	}
-}
-
-func DecompressBody(resp *http.Response) (string, error) {
-	var reader io.ReadCloser
-	var err error
-
-	// 根据 Content-Encoding 头选择解压缩方式
-	encoding := resp.Header.Get("Content-Encoding")
-	switch strings.ToLower(encoding) {
-	case "gzip":
-		reader, err = gzip.NewReader(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to create gzip reader: %v", err)
-		}
-		defer reader.Close()
-	case "deflate":
-		reader, err = zlib.NewReader(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to create zlib reader: %v", err)
-		}
-		defer reader.Close()
-	default:
-		reader = resp.Body // 未压缩，直接使用原响应体
-	}
-
-	// 读取解压缩后的数据
-	bodyBytes, err := io.ReadAll(reader)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// 删除 Content-Encoding 头
-	resp.Header.Del("Content-Encoding")
-
-	return string(bodyBytes), nil
 }

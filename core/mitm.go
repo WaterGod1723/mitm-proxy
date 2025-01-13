@@ -2,6 +2,8 @@ package core
 
 import (
 	"bufio"
+	"compress/gzip"
+	"compress/zlib"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -93,6 +95,7 @@ type Container struct {
 	processProxy    func(req *http.Request) ProxyArray
 	processRequest  func(req *http.Request) ResponseWriteFunc
 	processResponse func(resp *http.Response) ResponseWriteFunc
+	insertHTMLFn    func(resp *http.Response) error
 }
 
 type MyRequest struct {
@@ -164,6 +167,10 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			return err
 		}
 
+		if c.insertHTMLFn != nil {
+			req.Header.Set("accept-encoding", "gzip, deflate")
+		}
+
 		if c.processRequest != nil {
 			writeFn := c.processRequest(req)
 			if writeFn != nil {
@@ -185,6 +192,13 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			ww.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			ww.Write([]byte(err.Error()))
 			return err
+		}
+
+		if c.insertHTMLFn != nil {
+			err := c.insertHTMLFn(resp)
+			if err != nil {
+				log.Println("insert html error:", err)
+			}
 		}
 
 		if c.processResponse != nil {
@@ -220,19 +234,92 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 	})
 }
 
+// 设置代理
 func (c *Container) SetProxy(fn func(req *http.Request) ProxyArray) *Container {
 	c.processProxy = fn
 	return c
 }
 
+// 设置请求的预处理
 func (c *Container) ProcessRequest(fn func(req *http.Request) ResponseWriteFunc) *Container {
 	c.processRequest = fn
 	return c
 }
 
+// 设置响应的处理
 func (c *Container) ProcessResponse(fn func(resp *http.Response) ResponseWriteFunc) *Container {
 	c.processResponse = fn
 	return c
+}
+
+// html元素注入，注入html元素的时候会默认将请求头中的accept-encoding修改为gzip, deflate;
+func (c *Container) InsertHTMLToHTMLBody(htmlFn func(resp *http.Response) string) {
+	decompressBody := func(resp *http.Response) (string, error) {
+		var reader io.ReadCloser
+		var err error
+		// 根据 Content-Encoding 头选择解压缩方式
+		encoding := resp.Header.Get("Content-Encoding")
+		switch strings.ToLower(encoding) {
+		case "gzip":
+			reader, err = gzip.NewReader(resp.Body)
+			if err != nil {
+				return "", fmt.Errorf("failed to create gzip reader: %v", err)
+			}
+			defer reader.Close()
+		case "deflate":
+			reader, err = zlib.NewReader(resp.Body)
+			if err != nil {
+				return "", fmt.Errorf("failed to create zlib reader: %v", err)
+			}
+			defer reader.Close()
+		default:
+			reader = resp.Body // 未压缩，直接使用原响应体
+		}
+
+		// 读取解压缩后的数据
+		bodyBytes, err := io.ReadAll(reader)
+		if err != nil {
+			return "", fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		// 删除 Content-Encoding 头
+		resp.Header.Del("Content-Encoding")
+
+		return string(bodyBytes), nil
+	}
+
+	c.insertHTMLFn = func(resp *http.Response) error {
+		// 检查 Content-Type 是否为 HTML
+		contentType := resp.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "text/html") {
+			return nil // 不是 HTML，直接返回原响应
+		}
+
+		// 在 </body> 标签前插入指定字符串
+		bodyStr, err := decompressBody(resp)
+		if err != nil {
+			return err
+		}
+		bodyTagIndex := strings.LastIndex(bodyStr, "</body>")
+		if bodyTagIndex == -1 {
+			// 构建新的响应体
+			newBody := io.NopCloser(strings.NewReader(bodyStr))
+			resp.Body = newBody
+			// 如果没有找到 </body> 标签，直接返回原响应
+			return nil
+		}
+
+		// 构建新的响应体
+		newBodyStr := bodyStr[:bodyTagIndex] + htmlFn(resp) + bodyStr[bodyTagIndex:]
+		newBody := io.NopCloser(strings.NewReader(newBodyStr))
+
+		// 更新响应体
+		resp.Body = newBody
+		resp.ContentLength = int64(len(newBodyStr))
+		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBodyStr)))
+
+		return nil
+	}
 }
 
 func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) error) {
