@@ -57,6 +57,7 @@ func main() {
 	flag.Parse()
 	c := core.NewMITM()
 	c.ProcessRequest(func(req *http.Request) core.ResponseWriteFunc {
+		req.Header.Set("accept-encoding", "gzip")
 		// if req.Method == http.MethodOptions && isAllowedCors {
 		// 	return handleCors()
 		// }
