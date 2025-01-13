@@ -84,13 +84,15 @@ type Intermediary struct {
 // [协议，代理地址，账号，密码]
 type ProxyArray = [4]string
 
-type ResponseWriteFunc func(w io.Writer) error
+type ResponseWriteFunc func(w *ResponseWriter) error
 
 type Container struct {
-	inters map[int]*Intermediary
-	count  int
-	uid    int
-	mu     sync.Mutex
+	inters       map[int]*Intermediary
+	count        int
+	uid          int
+	mu           sync.Mutex
+	manageRouter map[string]func(w *ResponseWriter, r *http.Request)
+	port         string
 
 	processProxy    func(req *http.Request) ProxyArray
 	processRequest  func(req *http.Request) ResponseWriteFunc
@@ -119,7 +121,10 @@ func (c *Container) Start(addr string) {
 		time.Sleep(time.Second * 10)
 		return
 	}
-	fmt.Println("server on: http://localhost:8003")
+
+	c.port = strings.Split(addr, ":")[1]
+	log.Println("server on http://localhost:" + c.port)
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -162,6 +167,18 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 	}()
 
 	inter.ReadRequest(func(req *http.Request) error {
+		if req.Host == "localhost:"+c.port {
+			fn := c.manageRouter[req.URL.Path]
+			ww := NewResponseWriter(&inter.client)
+			if fn != nil {
+				fn(ww, req)
+			} else {
+				ww.SetStatus(http.StatusNotFound)
+				ww.Write([]byte("404 mitm proxy not found this page"))
+			}
+			return nil
+		}
+
 		if req.Method == http.MethodConnect {
 			err := inter.UpgradeClient2Tls(req.Host)
 			return err
@@ -174,7 +191,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		if c.processRequest != nil {
 			writeFn := c.processRequest(req)
 			if writeFn != nil {
-				return writeFn(&inter.client)
+				return writeFn(NewResponseWriter(&inter.client))
 			}
 		}
 
@@ -204,7 +221,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		if c.processResponse != nil {
 			writeFn := c.processResponse(resp)
 			if writeFn != nil {
-				return writeFn(&inter.client)
+				return writeFn(NewResponseWriter(&inter.client))
 			}
 		}
 
@@ -232,6 +249,14 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 
 		return nil
 	})
+}
+
+// 处理host是localhost且监听端口是本服务的http请求，主要用于mitm服务管理
+func (c *Container) HandleFunc(pattern string, handleFunc func(w *ResponseWriter, r *http.Request)) {
+	if c.manageRouter == nil {
+		c.manageRouter = make(map[string]func(w *ResponseWriter, r *http.Request))
+	}
+	c.manageRouter[pattern] = handleFunc
 }
 
 // 设置代理

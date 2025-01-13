@@ -41,7 +41,7 @@ func (w *ResponseWriter) Write(data []byte) (int, error) {
 	}
 
 	if len(data) > 0 && w.header.Get("Content-type") == "" {
-		w.header.Set("Content-type", "text/plain")
+		w.Header().Set("Content-type", "text/plain")
 	}
 
 	// 写入头部

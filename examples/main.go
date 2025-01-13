@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -53,11 +52,8 @@ func main() {
 
 	flag.Parse()
 	c := core.NewMITM()
+	mangeRouter(c)
 	c.ProcessRequest(func(req *http.Request) core.ResponseWriteFunc {
-		if req.Host == "localhost:"+port {
-			return mangeRouter(req)
-		}
-
 		arr := [...]string{
 			req.URL.Scheme,
 			req.Host,
@@ -82,8 +78,7 @@ func main() {
 
 	c.ProcessResponse(func(resp *http.Response) core.ResponseWriteFunc {
 		if resp.StatusCode == http.StatusInternalServerError {
-			return func(ww io.Writer) error {
-				w := core.NewResponseWriter(ww)
+			return func(w *core.ResponseWriter) error {
 				w.SetStatus(http.StatusInternalServerError)
 				w.Write([]byte("server error----from mitm-proxy"))
 				return nil
@@ -152,8 +147,7 @@ func LuaRewriteReq(uri *[3]string) {
 }
 
 func handleCors() core.ResponseWriteFunc {
-	return func(ww io.Writer) error {
-		w := core.NewResponseWriter(ww)
+	return func(w *core.ResponseWriter) error {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -165,29 +159,33 @@ func handleCors() core.ResponseWriteFunc {
 	}
 }
 
-func mangeRouter(req *http.Request) core.ResponseWriteFunc {
-	if req.URL.Path == "/open-cors" {
-		isAllowedCors = true
-	} else if req.URL.Path == "/close-cors" {
-		isAllowedCors = false
-	} else if req.URL.Path == "/can-cors" {
-		return func(ww io.Writer) error {
-			w := core.NewResponseWriter(ww)
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.SetStatus(http.StatusOK)
-			if isAllowedCors {
-				w.Write([]byte("true"))
-			} else {
-				w.Write([]byte("false"))
-			}
-			return nil
-		}
-	}
-	return func(ww io.Writer) error {
-		w := core.NewResponseWriter(ww)
+func mangeRouter(c *core.Container) {
+	c.HandleFunc("/", func(w *core.ResponseWriter, r *http.Request) {
+		w.SetStatus(http.StatusOK)
+		w.Write([]byte("welcome to mitm-proxy"))
+	})
+
+	c.HandleFunc("/open-cors", func(w *core.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.SetStatus(http.StatusOK)
-		w.Write([]byte("ok"))
-		return nil
-	}
+		w.Write([]byte("true"))
+		isAllowedCors = true
+	})
+
+	c.HandleFunc("/close-cors", func(w *core.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.SetStatus(http.StatusOK)
+		w.Write([]byte("false"))
+		isAllowedCors = false
+	})
+
+	c.HandleFunc("/can-cors", func(w *core.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.SetStatus(http.StatusOK)
+		if isAllowedCors {
+			w.Write([]byte("true"))
+		} else {
+			w.Write([]byte("false"))
+		}
+	})
 }
