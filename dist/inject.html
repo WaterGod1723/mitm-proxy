@@ -3,6 +3,8 @@
     const port = '{{port}}';
     // 创建悬浮按钮的容器
     const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.zIndex = '9999';
     document.body.appendChild(container);
 
     // 创建 Shadow DOM
@@ -45,7 +47,7 @@
 
     // 将容器添加到配置面板
     configPanel.appendChild(switchContainer);
-    configPanel.style.display = 'none'
+    configPanel.style.display = 'none';
 
     // 将按钮和配置面板添加到 Shadow DOM
     shadow.appendChild(floatingButton);
