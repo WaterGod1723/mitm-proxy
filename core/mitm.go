@@ -93,6 +93,7 @@ type Container struct {
 	mu           sync.Mutex
 	manageRouter map[string]func(w *ResponseWriter, r *http.Request)
 	port         string
+	localIPs     map[string]struct{} // 防止请求形成环路
 
 	processProxy    func(req *http.Request) ProxyArray
 	processRequest  func(req *http.Request) ResponseWriteFunc
@@ -115,6 +116,12 @@ func NewMITM() *Container {
 }
 
 func (c *Container) Start(addr string) {
+	var err error
+	c.localIPs, err = getLocalIPs()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Println("some error", err)
@@ -167,7 +174,13 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 	}()
 
 	inter.ReadRequest(func(req *http.Request) error {
-		if req.Host == "localhost:"+c.port {
+		hostPort := strings.Split(req.Host, ":")
+		port := "80"
+		if len(hostPort) > 1 {
+			port = hostPort[1]
+		}
+
+		if _, ok := c.localIPs[hostPort[0]]; ok && port == c.port {
 			fn := c.manageRouter[req.URL.Path]
 			ww := NewResponseWriter(&inter.client)
 			if fn != nil {
@@ -534,4 +547,40 @@ func isWebSocketRequest(r *http.Request) bool {
 
 	// 如果符合所有条件，返回 true
 	return true
+}
+
+func getLocalIPs() (map[string]struct{}, error) {
+	ips := make(map[string]struct{})
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, iface := range interfaces {
+		// 排除回环接口
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+				ips[ipnet.IP.String()] = struct{}{}
+			}
+		}
+	}
+
+	// 如果没有找到有效的 IP 地址，则返回错误
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("could not find any valid non-loopback IP addresses")
+	}
+
+	ips["localhost"] = struct{}{}
+	ips["127.0.0.1"] = struct{}{}
+
+	return ips, nil
 }

@@ -1,3 +1,4 @@
 examples/app.manifest
 examples/app1.ico
 examples/main.exe
+test/*
