@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"compress/zlib"
 	"fmt"
@@ -91,8 +92,14 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			conn:   clientConn,
 			reader: bufio.NewReader(*clientConn),
 		},
-		server: mapPool.Get().(map[string]*Server),
+		server:        mapPool.Get().(map[string]*Server),
+		clientWriteCh: make(chan func(), 10),
 	}
+	go func() {
+		for fn := range inter.clientWriteCh {
+			fn()
+		}
+	}()
 	c.inters[id] = &inter
 	c.mu.Unlock()
 	log.Printf("conn++: %d\n", c.count)
@@ -110,6 +117,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		}
 		mapPool.Put(inter.server)
 		(*clientConn).Close()
+		close(inter.clientWriteCh)
 	}()
 
 	inter.ReadRequest(func(req *http.Request) error {
@@ -120,13 +128,36 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		}
 
 		if _, ok := c.localIPs[hostPort[0]]; ok && port == c.port {
-			fn := c.manageRouter[req.URL.Path]
 			ww := NewResponseWriter(&inter.client)
+			ww.Header().Set("Access-Control-Allow-Origin", "*")
+			ww.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
+			ww.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			ww.Header().Set("Access-Control-Max-Age", "86400")
+			ww.Header().Set("Access-Control-Allow-Credentials", "true")
+			if req.Method == http.MethodOptions {
+				ww.SetStatus(http.StatusNoContent)
+				inter.clientWriteCh <- func() {
+					ww.Write([]byte(""))
+				}
+				return nil
+			}
+			fn := c.manageRouter[req.URL.Path]
 			if fn != nil {
-				fn(ww, req)
+				if req.Body != nil {
+					b, err := io.ReadAll(req.Body)
+					req.Body.Close()
+					if err == nil {
+						req.Body = io.NopCloser(bytes.NewReader(b))
+					}
+				}
+				inter.clientWriteCh <- func() {
+					fn(ww, req)
+				}
 			} else {
-				ww.SetStatus(http.StatusNotFound)
-				ww.Write([]byte("404 mitm proxy not found this page"))
+				ww.SetStatus(http.StatusNoContent)
+				inter.clientWriteCh <- func() {
+					ww.Write([]byte(""))
+				}
 			}
 			return nil
 		}
@@ -143,7 +174,9 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		if c.processRequest != nil {
 			writeFn := c.processRequest(req)
 			if writeFn != nil {
-				return writeFn(NewResponseWriter(&inter.client))
+				inter.clientWriteCh <- func() {
+					writeFn(NewResponseWriter(&inter.client))
+				}
 			}
 		}
 
@@ -159,8 +192,10 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			ww := NewResponseWriter(&inter.client)
 			ww.SetStatus(http.StatusBadGateway)
 			ww.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			ww.Write([]byte(err.Error()))
-			return err
+			inter.clientWriteCh <- func() {
+				ww.Write([]byte(err.Error()))
+			}
+			return nil
 		}
 
 		if c.insertHTMLFn != nil {
@@ -173,32 +208,38 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		if c.processResponse != nil {
 			writeFn := c.processResponse(resp)
 			if writeFn != nil {
-				return writeFn(NewResponseWriter(&inter.client))
+				inter.clientWriteCh <- func() {
+					writeFn(NewResponseWriter(&inter.client))
+				}
+				return nil
 			}
 		}
 
-		err = resp.Write(&inter.client)
-		if err != nil {
-			log.Println("write to client error", err)
-			return err
-		}
-		log.Println((*inter.client.conn).RemoteAddr(), req.URL, resp.Status)
-
-		if isWebSocketRequest(req) {
-			server := inter.server[req.Host]
-			s := ""
-			if server.isTls {
-				s = "s"
+		inter.clientWriteCh <- func() {
+			err = resp.Write(&inter.client)
+			if err != nil {
+				log.Println("write to client error", err)
+				return
 			}
-			if resp.StatusCode == http.StatusSwitchingProtocols {
-				log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
-				go io.Copy(&inter.client, server)
-				io.Copy(server, &inter.client)
-			} else {
-				log.Printf("websocket connect error: ws%s://%s\n", s, req.Host)
+			defer resp.Body.Close()
+
+			log.Println((*inter.client.conn).RemoteAddr(), req.URL, resp.Status)
+
+			if isWebSocketRequest(req) {
+				server := inter.server[req.Host]
+				s := ""
+				if server.isTls {
+					s = "s"
+				}
+				if resp.StatusCode == http.StatusSwitchingProtocols {
+					log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
+					go io.Copy(&inter.client, server)
+					io.Copy(server, &inter.client)
+				} else {
+					log.Printf("websocket connect error: ws%s://%s\n", s, req.Host)
+				}
 			}
 		}
-
 		return nil
 	})
 }

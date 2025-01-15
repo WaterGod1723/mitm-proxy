@@ -67,8 +67,9 @@ func (server *Server) Read(b []byte) (n int, err error) {
 }
 
 type Intermediary struct {
-	client Client
-	server map[string]*Server
+	client        Client
+	clientWriteCh chan func()
+	server        map[string]*Server
 }
 
 func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) error) {
