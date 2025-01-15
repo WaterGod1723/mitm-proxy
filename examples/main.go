@@ -2,12 +2,15 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/WaterGod1723/mitm-proxy/core"
 
@@ -26,10 +29,12 @@ var luaPool = sync.Pool{
 		return L
 	},
 }
-var injectHTML string
-var isAllowedCors = true
 
-var proxyCache sync.Map
+var (
+	injectHTML    string
+	isAllowedCors = true
+	proxyCache    sync.Map
+)
 
 func init() {
 	luaScriptByte, err := os.ReadFile("config.lua")
@@ -46,9 +51,8 @@ func init() {
 }
 
 func main() {
+	go checkConfChange()
 	addr := flag.String("addr", "0.0.0.0:8003", "代理服务地址,0.0.0.0监听所有网卡,http协议")
-	port := strings.Split(*addr, ":")[1]
-	injectHTML = strings.ReplaceAll(injectHTML, "{{port}}", port)
 
 	flag.Parse()
 	c := core.NewMITM()
@@ -146,41 +150,30 @@ func LuaRewriteReq(uri *[3]string) {
 	L.Pop(3)
 }
 
-func handleCors() core.ResponseWriteFunc {
-	return func(w *core.ResponseWriter) error {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Max-Age", "86400")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.SetStatus(http.StatusNoContent)
-		w.Write([]byte{})
-		return nil
-	}
-}
-
 func mangeRouter(c *core.Container) {
 	c.HandleFunc("/", func(w *core.ResponseWriter, r *http.Request) {
 		w.SetStatus(http.StatusOK)
 		w.Write([]byte("welcome to mitm-proxy"))
 	})
 
+	c.HandleFunc("/", func(w *core.ResponseWriter, r *http.Request) {
+		w.SetStatus(http.StatusOK)
+		w.Write([]byte("welcome to mitm-proxy"))
+	})
+
 	c.HandleFunc("/open-cors", func(w *core.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.SetStatus(http.StatusOK)
 		w.Write([]byte("true"))
 		isAllowedCors = true
 	})
 
 	c.HandleFunc("/close-cors", func(w *core.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.SetStatus(http.StatusOK)
 		w.Write([]byte("false"))
 		isAllowedCors = false
 	})
 
 	c.HandleFunc("/can-cors", func(w *core.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.SetStatus(http.StatusOK)
 		if isAllowedCors {
 			w.Write([]byte("true"))
@@ -188,4 +181,67 @@ func mangeRouter(c *core.Container) {
 			w.Write([]byte("false"))
 		}
 	})
+
+}
+
+// 检测文件是否更新的函数
+func checkFileAndRestart(filePath string, lastModTime *time.Time) {
+	for {
+		// 获取文件的当前状态
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("Error checking file: %v\n", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// 如果文件的修改时间大于上次记录的时间，表示文件已更新
+		if fileInfo.ModTime().After(*lastModTime) {
+			fmt.Println("Config file updated. Restarting program...")
+
+			// 更新最后修改时间
+			*lastModTime = fileInfo.ModTime()
+
+			// 调用重启程序的函数
+			restartProgram()
+		}
+
+		// 每 2 秒检查一次
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// 重启程序
+func restartProgram() {
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Fatal("Error finding executable path:", err)
+	}
+
+	cmd := exec.Command(execPath, os.Args[1:]...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Start(); err != nil {
+		log.Fatal("Failed to restart:", err)
+	}
+
+	os.Exit(0)
+}
+
+func checkConfChange() {
+	// 配置文件路径
+	filePath := "config.lua"
+
+	// 初始化最后修改时间
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		fmt.Printf("Error getting file info: %v\n", err)
+		return
+	}
+	lastModTime := fileInfo.ModTime()
+
+	// 开始检测文件更新
+	checkFileAndRestart(filePath, &lastModTime)
 }
