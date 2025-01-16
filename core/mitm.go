@@ -2,7 +2,6 @@ package core
 
 import (
 	"bufio"
-	"bytes"
 	"compress/gzip"
 	"compress/zlib"
 	"fmt"
@@ -121,6 +120,8 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 	}()
 
 	inter.ReadRequest(func(req *http.Request) error {
+		defer req.Body.Close()
+
 		hostPort := strings.Split(req.Host, ":")
 		port := "80"
 		if len(hostPort) > 1 {
@@ -131,9 +132,18 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			ww := NewResponseWriter(&inter.client)
 			ww.Header().Set("Access-Control-Allow-Origin", "*")
 			ww.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
-			ww.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			ww.Header().Set("Access-Control-Allow-Headers", "*")
 			ww.Header().Set("Access-Control-Max-Age", "86400")
 			ww.Header().Set("Access-Control-Allow-Credentials", "true")
+
+			if !(*inter.client.conn).RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+				ww.SetStatus(http.StatusNotFound)
+				inter.clientWriteCh <- func() {
+					ww.Write([]byte("404 not found"))
+				}
+				return nil
+			}
+
 			if req.Method == http.MethodOptions {
 				ww.SetStatus(http.StatusNoContent)
 				inter.clientWriteCh <- func() {
@@ -143,13 +153,6 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			}
 			fn := c.manageRouter[req.URL.Path]
 			if fn != nil {
-				if req.Body != nil {
-					b, err := io.ReadAll(req.Body)
-					req.Body.Close()
-					if err == nil {
-						req.Body = io.NopCloser(bytes.NewReader(b))
-					}
-				}
 				inter.clientWriteCh <- func() {
 					fn(ww, req)
 				}
@@ -223,6 +226,13 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			}
 			defer resp.Body.Close()
 
+			if req.URL.Scheme == "" {
+				if inter.client.isTls {
+					req.URL.Scheme = "https"
+				} else {
+					req.URL.Scheme = "http"
+				}
+			}
 			log.Println((*inter.client.conn).RemoteAddr(), req.URL, resp.Status)
 
 			if isWebSocketRequest(req) {

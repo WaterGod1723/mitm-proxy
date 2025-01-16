@@ -2,9 +2,11 @@ package core
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -77,7 +79,9 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) e
 	for {
 		request, err := inter.client.ReadRequest()
 		if err != nil {
-			log.Println(err)
+			if err != io.EOF {
+				log.Println(err)
+			}
 			return
 		}
 		(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
@@ -95,7 +99,9 @@ func (inter *Intermediary) DoRequest(request *MyRequest, isRetry bool) (*http.Re
 		return nil, err
 	}
 
-	err = request.raw.Write(server)
+	rc := request.raw.Clone(context.TODO())
+	err = rc.Write(server)
+	rc.Body.Close()
 	if err != nil {
 		if !isRetry {
 			// 重试
