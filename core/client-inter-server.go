@@ -79,7 +79,7 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) e
 	for {
 		request, err := inter.client.ReadRequest()
 		if err != nil {
-			if err != io.EOF {
+			if nErr, ok := err.(net.Error); err != io.EOF && (ok && !nErr.Timeout()) {
 				log.Println(err)
 			}
 			return

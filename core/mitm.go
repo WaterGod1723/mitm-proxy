@@ -212,6 +212,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			writeFn := c.processResponse(resp)
 			if writeFn != nil {
 				inter.clientWriteCh <- func() {
+					defer resp.Body.Close()
 					writeFn(NewResponseWriter(&inter.client))
 				}
 				return nil
