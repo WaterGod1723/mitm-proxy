@@ -165,12 +165,6 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			return
 		}
 
-		if req.Method == http.MethodConnect {
-			err := inter.UpgradeClient2Tls(req.Host)
-			inter.err = err
-			return
-		}
-
 		if c.insertHTMLFn != nil {
 			req.Header.Set("accept-encoding", "gzip, deflate")
 		}

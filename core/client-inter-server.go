@@ -92,7 +92,12 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request)) 
 		}
 		(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 
-		if 0 < request.ContentLength && request.ContentLength < 1<<18 {
+		if request.Method == http.MethodConnect {
+			inter.err = inter.UpgradeClient2Tls(request.Host)
+			continue
+		}
+
+		if -1 < request.ContentLength && request.ContentLength < 1<<18 {
 			if request.ContentLength != 0 {
 				b, err := io.ReadAll(request.Body)
 				request.Body.Close()
