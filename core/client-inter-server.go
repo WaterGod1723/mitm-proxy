@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -72,11 +73,16 @@ type Intermediary struct {
 	client        Client
 	clientWriteCh chan func()
 	server        map[string]*Server
+	err           error
 }
 
-func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) error) {
+func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request)) {
 	(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 	for {
+		if inter.err != nil {
+			return
+		}
+
 		request, err := inter.client.ReadRequest()
 		if err != nil {
 			if nErr, ok := err.(net.Error); err != io.EOF && (ok && !nErr.Timeout()) {
@@ -86,10 +92,20 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request) e
 		}
 		(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 
-		err = handleRequestFn(request)
-		if err != nil {
-			return
+		if 0 < request.ContentLength && request.ContentLength < 1<<18 {
+			if request.ContentLength != 0 {
+				b, err := io.ReadAll(request.Body)
+				request.Body.Close()
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				request.Body = io.NopCloser(bytes.NewReader(b))
+			}
+			go handleRequestFn(request)
+			continue
 		}
+		handleRequestFn(request)
 	}
 }
 

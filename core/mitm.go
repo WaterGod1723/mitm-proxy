@@ -119,7 +119,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		close(inter.clientWriteCh)
 	}()
 
-	inter.ReadRequest(func(req *http.Request) error {
+	inter.ReadRequest(func(req *http.Request) {
 		defer req.Body.Close()
 
 		hostPort := strings.Split(req.Host, ":")
@@ -141,7 +141,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 				inter.clientWriteCh <- func() {
 					ww.Write([]byte("404 not found"))
 				}
-				return nil
+				return
 			}
 
 			if req.Method == http.MethodOptions {
@@ -149,7 +149,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 				inter.clientWriteCh <- func() {
 					ww.Write([]byte(""))
 				}
-				return nil
+				return
 			}
 			fn := c.manageRouter[req.URL.Path]
 			if fn != nil {
@@ -162,12 +162,13 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 					ww.Write([]byte(""))
 				}
 			}
-			return nil
+			return
 		}
 
 		if req.Method == http.MethodConnect {
 			err := inter.UpgradeClient2Tls(req.Host)
-			return err
+			inter.err = err
+			return
 		}
 
 		if c.insertHTMLFn != nil {
@@ -198,7 +199,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			inter.clientWriteCh <- func() {
 				ww.Write([]byte(err.Error()))
 			}
-			return nil
+			return
 		}
 
 		if c.insertHTMLFn != nil {
@@ -215,7 +216,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 					defer resp.Body.Close()
 					writeFn(NewResponseWriter(&inter.client))
 				}
-				return nil
+				return
 			}
 		}
 
@@ -251,7 +252,6 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 				}
 			}
 		}
-		return nil
 	})
 }
 
