@@ -120,6 +120,11 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 	}()
 
 	inter.ReadRequest(func(req *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Println(err)
+			}
+		}()
 		defer req.Body.Close()
 
 		hostPort := strings.Split(req.Host, ":")
@@ -317,7 +322,7 @@ func (c *Container) InsertHTMLToHTMLBody(htmlFn func(resp *http.Response) string
 		if !strings.Contains(contentType, "text/html") {
 			return nil // 不是 HTML，直接返回原响应
 		}
-		resp.Header.Set("Content-Security-Policy", "script-src 'unsafe-inline' https: http:")
+		resp.Header.Del("Content-Security-Policy")
 
 		// 在 </body> 标签前插入指定字符串
 		bodyStr, err := decompressBody(resp)
