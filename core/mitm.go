@@ -317,6 +317,7 @@ func (c *Container) InsertHTMLToHTMLBody(htmlFn func(resp *http.Response) string
 		if !strings.Contains(contentType, "text/html") {
 			return nil // 不是 HTML，直接返回原响应
 		}
+		resp.Header.Set("Content-Security-Policy", "script-src 'unsafe-inline' https: http:")
 
 		// 在 </body> 标签前插入指定字符串
 		bodyStr, err := decompressBody(resp)
