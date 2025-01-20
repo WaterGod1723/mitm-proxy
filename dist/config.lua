@@ -103,3 +103,13 @@ function GoProxy(host)
         return proxy
     end
 end
+
+-- 会被代理程序调用, html注入的元素文件路径
+function GoInject(host)
+    for _, h in ipairs(hostList) do
+        if h == host then
+            return "./inject.html"
+        end
+    end
+    return ""
+end
