@@ -31,7 +31,6 @@ var luaPool = sync.Pool{
 }
 
 var (
-	injectHTML    string
 	isAllowedCors = true
 	proxyCache    sync.Map
 )
@@ -42,12 +41,6 @@ func init() {
 		log.Fatal("read config error", err)
 	}
 	luaScript = string(luaScriptByte)
-
-	injectScriptByte, err := os.ReadFile("inject.html")
-	if err != nil {
-		log.Fatal("read config error", err)
-	}
-	injectHTML = string(injectScriptByte)
 }
 
 func main() {
@@ -77,19 +70,20 @@ func main() {
 	})
 
 	c.InsertHTMLToHTMLBody(func(resp *http.Response) string {
-		return injectHTML
+		host := strings.Split(resp.Request.Host, ":")[0]
+		return LuaGetInjectHTML(host)
 	})
 
-	c.ProcessResponse(func(resp *http.Response) core.ResponseWriteFunc {
-		if resp.StatusCode == http.StatusInternalServerError {
-			return func(w *core.ResponseWriter) error {
-				w.SetStatus(http.StatusInternalServerError)
-				w.Write([]byte("server error----from mitm-proxy"))
-				return nil
-			}
-		}
-		return nil
-	})
+	// c.ProcessResponse(func(resp *http.Response) core.ResponseWriteFunc {
+	// 	if resp.StatusCode == http.StatusInternalServerError {
+	// 		return func(w *core.ResponseWriter) error {
+	// 			w.SetStatus(http.StatusInternalServerError)
+	// 			w.Write([]byte("server error----from mitm-proxy"))
+	// 			return nil
+	// 		}
+	// 	}
+	// 	return nil
+	// })
 
 	c.Start(*addr)
 }
@@ -128,6 +122,31 @@ func LuaGetProxy(host string) core.ProxyArray {
 	}
 	proxyCache.Store(host, p)
 	return p
+}
+
+func LuaGetInjectHTML(host string) string {
+	L := luaPool.Get().(*lua.LState)
+	defer luaPool.Put(L)
+
+	err := L.CallByParam(lua.P{
+		Fn:      L.GetGlobal("GoInject"),
+		NRet:    1,
+		Protect: true,
+	}, lua.LString(host))
+
+	if err != nil {
+		log.Println("Error:", err)
+		return ""
+	}
+	result := L.Get(-1)
+	L.Pop(1)
+	p := string(result.(lua.LString))
+	b, err := os.ReadFile(p)
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	return string(b)
 }
 
 func LuaRewriteReq(uri *[3]string) {
