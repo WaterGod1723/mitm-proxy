@@ -76,7 +76,7 @@ type Intermediary struct {
 	err           error
 }
 
-func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request)) {
+func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request, isWs bool)) {
 	(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 	for {
 		if inter.err != nil {
@@ -96,8 +96,9 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request)) 
 			inter.err = inter.UpgradeClient2Tls(request.Host)
 			continue
 		}
+		isws := isWebSocketRequest(request)
 
-		if -1 < request.ContentLength && request.ContentLength < 1<<18 {
+		if !isws && -1 < request.ContentLength && request.ContentLength < 1<<18 {
 			if request.ContentLength != 0 {
 				b, err := io.ReadAll(request.Body)
 				request.Body.Close()
@@ -107,10 +108,10 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request)) 
 				}
 				request.Body = io.NopCloser(bytes.NewReader(b))
 			}
-			go handleRequestFn(request)
+			go handleRequestFn(request, isws)
 			continue
 		}
-		handleRequestFn(request)
+		handleRequestFn(request, isws)
 	}
 }
 

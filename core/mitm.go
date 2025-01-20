@@ -119,7 +119,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		close(inter.clientWriteCh)
 	}()
 
-	inter.ReadRequest(func(req *http.Request) {
+	inter.ReadRequest(func(req *http.Request, isWs bool) {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Println(err)
@@ -219,13 +219,13 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			}
 		}
 
-		inter.clientWriteCh <- func() {
+		w := func() {
 			err = resp.Write(&inter.client)
 			if err != nil {
 				log.Println("write to client error", err)
 				return
 			}
-			defer resp.Body.Close()
+			resp.Body.Close()
 
 			if req.URL.Scheme == "" {
 				if inter.client.isTls {
@@ -235,22 +235,25 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 				}
 			}
 			log.Println((*inter.client.conn).RemoteAddr(), req.URL, resp.Status)
-
-			if isWebSocketRequest(req) {
-				server := inter.server[req.Host]
-				s := ""
-				if server.isTls {
-					s = "s"
-				}
-				if resp.StatusCode == http.StatusSwitchingProtocols {
-					log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
-					go io.Copy(&inter.client, server)
-					io.Copy(server, &inter.client)
-				} else {
-					log.Printf("websocket connect error: ws%s://%s\n", s, req.Host)
-				}
-			}
 		}
+		if isWs {
+			w()
+			server := inter.server[req.Host]
+			s := ""
+			if server.isTls {
+				s = "s"
+			}
+			if resp.StatusCode == http.StatusSwitchingProtocols {
+				log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
+				go io.Copy(&inter.client, server)
+				io.Copy(server, &inter.client)
+			} else {
+				log.Printf("websocket connect error: ws%s://%s\n", s, req.Host)
+			}
+		} else {
+			inter.clientWriteCh <- w
+		}
+
 	})
 }
 
