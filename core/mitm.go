@@ -26,7 +26,7 @@ type ResponseWriteFunc func(w *ResponseWriter) error
 type ProxyArray = [4]string
 
 type Container struct {
-	inters       map[int]*Connector
+	connectors   map[int]*Connector
 	count        int
 	uid          int
 	mu           sync.Mutex
@@ -47,10 +47,10 @@ type MyRequest struct {
 
 func NewMITM() *Container {
 	return &Container{
-		inters: make(map[int]*Connector),
-		count:  0,
-		uid:    0,
-		mu:     sync.Mutex{},
+		connectors: make(map[int]*Connector),
+		count:      0,
+		uid:        0,
+		mu:         sync.Mutex{},
 	}
 }
 
@@ -99,13 +99,13 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 			fn()
 		}
 	}()
-	c.inters[id] = &connector
+	c.connectors[id] = &connector
 	c.mu.Unlock()
 	log.Printf("conn++: %d\n", c.count)
 
 	defer func() {
 		c.mu.Lock()
-		delete(c.inters, id)
+		delete(c.connectors, id)
 		c.count--
 		log.Printf("conn--: %d\n", c.count)
 		c.mu.Unlock()
