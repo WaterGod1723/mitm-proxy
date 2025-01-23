@@ -238,13 +238,13 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		}
 		if isWs {
 			w()
-			(*inter.client.conn).SetDeadline(time.Now().Add(time.Hour * 24))
 			server := inter.server[req.Host]
 			s := ""
 			if server.isTls {
 				s = "s"
 			}
 			if resp.StatusCode == http.StatusSwitchingProtocols {
+				(*inter.client.conn).SetDeadline(time.Now().Add(time.Hour * 24))
 				log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
 				go io.Copy(&inter.client, server)
 				io.Copy(server, &inter.client)
