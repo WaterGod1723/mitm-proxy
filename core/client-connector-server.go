@@ -69,31 +69,31 @@ func (server *Server) Read(b []byte) (n int, err error) {
 	}
 }
 
-type Intermediary struct {
+type Connector struct {
 	client        Client
 	clientWriteCh chan func()
 	server        map[string]*Server
 	err           error
 }
 
-func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request, isWs bool)) {
-	(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
+func (connector *Connector) ReadRequest(handleRequestFn func(req *http.Request, isWs bool)) {
+	(*connector.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 	for {
-		if inter.err != nil {
+		if connector.err != nil {
 			return
 		}
 
-		request, err := inter.client.ReadRequest()
+		request, err := connector.client.ReadRequest()
 		if err != nil {
 			if nErr, ok := err.(net.Error); err != io.EOF && (ok && !nErr.Timeout()) {
 				log.Println(err)
 			}
 			return
 		}
-		(*inter.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
+		(*connector.client.conn).SetDeadline(time.Now().Add(time.Second * 60))
 
 		if request.Method == http.MethodConnect {
-			inter.err = inter.UpgradeClient2Tls(request.Host)
+			connector.err = connector.UpgradeClient2Tls(request.Host)
 			continue
 		}
 		isws := isWebSocketRequest(request)
@@ -115,8 +115,8 @@ func (inter *Intermediary) ReadRequest(handleRequestFn func(req *http.Request, i
 	}
 }
 
-func (inter *Intermediary) DoRequest(request *MyRequest, isRetry bool) (*http.Response, error) {
-	server, err := inter.connectServer(request, isRetry)
+func (connector *Connector) DoRequest(request *MyRequest, isRetry bool) (*http.Response, error) {
+	server, err := connector.connectServer(request, isRetry)
 	if err != nil {
 		return nil, err
 	}
@@ -127,21 +127,21 @@ func (inter *Intermediary) DoRequest(request *MyRequest, isRetry bool) (*http.Re
 	if err != nil {
 		if !isRetry {
 			// 重试
-			return inter.DoRequest(request, true)
+			return connector.DoRequest(request, true)
 		}
 		return nil, err
 	}
 
 	resp, err := server.ReadResponse(request.raw)
 	if err != nil && !isRetry {
-		return inter.DoRequest(request, true)
+		return connector.DoRequest(request, true)
 	}
 	return resp, err
 }
 
-func (inter *Intermediary) connectServer(request *MyRequest, isConnClosed bool) (*Server, error) {
+func (connector *Connector) connectServer(request *MyRequest, isConnClosed bool) (*Server, error) {
 	target := request.raw.Host
-	server := inter.server[target]
+	server := connector.server[target]
 
 	isServerTls := false
 	if request.raw.URL.Scheme == "https" {
@@ -149,7 +149,7 @@ func (inter *Intermediary) connectServer(request *MyRequest, isConnClosed bool) 
 	} else if request.raw.URL.Scheme == "http" {
 		isServerTls = false
 	} else if request.raw.URL.Scheme == "" {
-		isServerTls = inter.client.isTls
+		isServerTls = connector.client.isTls
 	}
 
 	if strings.LastIndex(target, ":") < 0 {
@@ -169,7 +169,7 @@ func (inter *Intermediary) connectServer(request *MyRequest, isConnClosed bool) 
 			conn:   &serverConn,
 			reader: bufio.NewReader(serverConn),
 		}
-		inter.server[request.raw.Host] = server
+		connector.server[request.raw.Host] = server
 		return nil
 	}
 
@@ -186,7 +186,7 @@ func (inter *Intermediary) connectServer(request *MyRequest, isConnClosed bool) 
 	}
 
 	if isServerTls && !server.isTls {
-		err := inter.UpgradeServer2TLS(request)
+		err := connector.UpgradeServer2TLS(request)
 		if err != nil {
 			return nil, err
 		}
@@ -195,9 +195,9 @@ func (inter *Intermediary) connectServer(request *MyRequest, isConnClosed bool) 
 	return server, nil
 }
 
-func (inter *Intermediary) UpgradeClient2Tls(host string) error {
+func (connector *Connector) UpgradeClient2Tls(host string) error {
 	response := "HTTP/1.1 200 Connection Established\r\n\r\n"
-	if _, err := (*inter.client.conn).Write([]byte(response)); err != nil {
+	if _, err := (*connector.client.conn).Write([]byte(response)); err != nil {
 		log.Printf("Error sending CONNECT response: %v", err)
 		return err
 	}
@@ -211,20 +211,20 @@ func (inter *Intermediary) UpgradeClient2Tls(host string) error {
 		return err
 	}
 
-	inter.client.tlsConn = tls.Server(*inter.client.conn, &tls.Config{
+	connector.client.tlsConn = tls.Server(*connector.client.conn, &tls.Config{
 		Certificates: []tls.Certificate{
 			cert,
 		},
 		InsecureSkipVerify: true,
 	})
 
-	inter.client.isTls = true
-	inter.client.reader = bufio.NewReader(inter.client.tlsConn)
+	connector.client.isTls = true
+	connector.client.reader = bufio.NewReader(connector.client.tlsConn)
 	return nil
 }
 
-func (inter *Intermediary) UpgradeServer2TLS(req *MyRequest) error {
-	server := inter.server[req.raw.Host]
+func (connector *Connector) UpgradeServer2TLS(req *MyRequest) error {
+	server := connector.server[req.raw.Host]
 	targetAddr := req.raw.Host
 	proxyAddr := req.proxy[1]
 

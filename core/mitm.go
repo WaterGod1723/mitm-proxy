@@ -26,7 +26,7 @@ type ResponseWriteFunc func(w *ResponseWriter) error
 type ProxyArray = [4]string
 
 type Container struct {
-	inters       map[int]*Intermediary
+	inters       map[int]*Connector
 	count        int
 	uid          int
 	mu           sync.Mutex
@@ -47,7 +47,7 @@ type MyRequest struct {
 
 func NewMITM() *Container {
 	return &Container{
-		inters: make(map[int]*Intermediary),
+		inters: make(map[int]*Connector),
 		count:  0,
 		uid:    0,
 		mu:     sync.Mutex{},
@@ -77,16 +77,16 @@ func (c *Container) Start(addr string) {
 			log.Fatal(err)
 		}
 
-		go c.addIntermediary(&conn)
+		go c.addConnector(&conn)
 	}
 }
 
-func (c *Container) addIntermediary(clientConn *net.Conn) {
+func (c *Container) addConnector(clientConn *net.Conn) {
 	c.mu.Lock()
 	c.count++
 	c.uid++
 	id := c.uid
-	inter := Intermediary{
+	connector := Connector{
 		client: Client{
 			conn:   clientConn,
 			reader: bufio.NewReader(*clientConn),
@@ -95,11 +95,11 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		clientWriteCh: make(chan func(), 10),
 	}
 	go func() {
-		for fn := range inter.clientWriteCh {
+		for fn := range connector.clientWriteCh {
 			fn()
 		}
 	}()
-	c.inters[id] = &inter
+	c.inters[id] = &connector
 	c.mu.Unlock()
 	log.Printf("conn++: %d\n", c.count)
 
@@ -110,16 +110,16 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		log.Printf("conn--: %d\n", c.count)
 		c.mu.Unlock()
 
-		for key, server := range inter.server {
+		for key, server := range connector.server {
 			(*server.conn).Close()
-			delete(inter.server, key)
+			delete(connector.server, key)
 		}
-		mapPool.Put(inter.server)
+		mapPool.Put(connector.server)
 		(*clientConn).Close()
-		close(inter.clientWriteCh)
+		close(connector.clientWriteCh)
 	}()
 
-	inter.ReadRequest(func(req *http.Request, isWs bool) {
+	connector.ReadRequest(func(req *http.Request, isWs bool) {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Println(err)
@@ -128,22 +128,27 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		defer req.Body.Close()
 
 		hostPort := strings.Split(req.Host, ":")
+
 		port := "80"
+		if connector.client.isTls {
+			port = "443"
+		}
+
 		if len(hostPort) > 1 {
 			port = hostPort[1]
 		}
 
 		if _, ok := c.localIPs[hostPort[0]]; ok && port == c.port {
-			ww := NewResponseWriter(&inter.client)
+			ww := NewResponseWriter(&connector.client)
 			ww.Header().Set("Access-Control-Allow-Origin", "*")
 			ww.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
 			ww.Header().Set("Access-Control-Allow-Headers", "*")
 			ww.Header().Set("Access-Control-Max-Age", "86400")
 			ww.Header().Set("Access-Control-Allow-Credentials", "true")
 
-			if !(*inter.client.conn).RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+			if !(*connector.client.conn).RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
 				ww.SetStatus(http.StatusNotFound)
-				inter.clientWriteCh <- func() {
+				connector.clientWriteCh <- func() {
 					ww.Write([]byte("404 not found"))
 				}
 				return
@@ -151,19 +156,19 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 
 			if req.Method == http.MethodOptions {
 				ww.SetStatus(http.StatusNoContent)
-				inter.clientWriteCh <- func() {
+				connector.clientWriteCh <- func() {
 					ww.Write([]byte(""))
 				}
 				return
 			}
 			fn := c.manageRouter[req.URL.Path]
 			if fn != nil {
-				inter.clientWriteCh <- func() {
+				connector.clientWriteCh <- func() {
 					fn(ww, req)
 				}
 			} else {
 				ww.SetStatus(http.StatusNoContent)
-				inter.clientWriteCh <- func() {
+				connector.clientWriteCh <- func() {
 					ww.Write([]byte(""))
 				}
 			}
@@ -177,8 +182,8 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		if c.processRequest != nil {
 			writeFn := c.processRequest(req)
 			if writeFn != nil {
-				inter.clientWriteCh <- func() {
-					writeFn(NewResponseWriter(&inter.client))
+				connector.clientWriteCh <- func() {
+					writeFn(NewResponseWriter(&connector.client))
 				}
 			}
 		}
@@ -190,12 +195,12 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			mReq.proxy = c.processProxy(req)
 		}
 
-		resp, err := inter.DoRequest(mReq, false)
+		resp, err := connector.DoRequest(mReq, false)
 		if err != nil {
-			ww := NewResponseWriter(&inter.client)
+			ww := NewResponseWriter(&connector.client)
 			ww.SetStatus(http.StatusBadGateway)
 			ww.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			inter.clientWriteCh <- func() {
+			connector.clientWriteCh <- func() {
 				ww.Write([]byte(err.Error()))
 			}
 			return
@@ -211,16 +216,16 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		if c.processResponse != nil {
 			writeFn := c.processResponse(resp)
 			if writeFn != nil {
-				inter.clientWriteCh <- func() {
+				connector.clientWriteCh <- func() {
 					defer resp.Body.Close()
-					writeFn(NewResponseWriter(&inter.client))
+					writeFn(NewResponseWriter(&connector.client))
 				}
 				return
 			}
 		}
 
 		w := func() {
-			err = resp.Write(&inter.client)
+			err = resp.Write(&connector.client)
 			if err != nil {
 				log.Println("write to client error", err)
 				return
@@ -228,31 +233,31 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 			resp.Body.Close()
 
 			if req.URL.Scheme == "" {
-				if inter.client.isTls {
+				if connector.client.isTls {
 					req.URL.Scheme = "https"
 				} else {
 					req.URL.Scheme = "http"
 				}
 			}
-			log.Println((*inter.client.conn).RemoteAddr(), req.URL, resp.Status)
+			log.Println((*connector.client.conn).RemoteAddr(), req.URL, resp.Status)
 		}
 		if isWs {
 			w()
-			server := inter.server[req.Host]
+			server := connector.server[req.Host]
 			s := ""
 			if server.isTls {
 				s = "s"
 			}
 			if resp.StatusCode == http.StatusSwitchingProtocols {
-				(*inter.client.conn).SetDeadline(time.Now().Add(time.Hour * 24))
+				(*connector.client.conn).SetDeadline(time.Now().Add(time.Hour * 24))
 				log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
-				go io.Copy(&inter.client, server)
-				io.Copy(server, &inter.client)
+				go io.Copy(&connector.client, server)
+				io.Copy(server, &connector.client)
 			} else {
 				log.Printf("websocket connect error: ws%s://%s\n", s, req.Host)
 			}
 		} else {
-			inter.clientWriteCh <- w
+			connector.clientWriteCh <- w
 		}
 
 	})
