@@ -238,6 +238,7 @@ func (c *Container) addIntermediary(clientConn *net.Conn) {
 		}
 		if isWs {
 			w()
+			(*inter.client.conn).SetDeadline(time.Now().Add(time.Hour * 24))
 			server := inter.server[req.Host]
 			s := ""
 			if server.isTls {
