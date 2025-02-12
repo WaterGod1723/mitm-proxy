@@ -1,4 +1,15 @@
 ### 中间人代理与证书配置
+```mermaid
+sequenceDiagram
+   client->>connector:request
+   client->>connector:request1
+   connector-)Server:request
+   connector-)Server:request1
+   Server--)connector:response
+   Server--)connector:response1
+   connector-->>client:response
+   connector-->>client:response1
+```
 
 1. **根证书生成与安装**：
    - 中间人代理需要生成并安装根证书，以确保跨域请求不被浏览器拦截。
