@@ -3,10 +3,12 @@
 sequenceDiagram
    client->>connector:request
    client->>connector:request1
+   connector->>connector: handle for requests
    connector-)Server:request
    connector-)Server:request1
    Server--)connector:response
    Server--)connector:response1
+   connector->>connector: handle for responses
    connector-->>client:response
    connector-->>client:response1
 ```
