@@ -70,25 +70,43 @@ func (w *ResponseWriter) Write(data []byte) (int, error) {
 		return 0, err
 	}
 
-	// 写入响应体
+	// Write data in chunks with max size of 3KB per chunk
 	if w.header.Get("Transfer-Encoding") == "chunked" {
-		// 分块传输
-		chunkHeader := fmt.Sprintf("%x\r\n", len(data)) // 块大小
-		if _, err := w.writer.Write([]byte(chunkHeader)); err != nil {
-			return 0, err
+		// Chunked transfer with max 3KB per chunk
+		maxChunkSize := 1024 * 3
+
+		// Write data in chunks
+		for i := 0; i < len(data); i += maxChunkSize {
+			end := i + maxChunkSize
+			if end > len(data) {
+				end = len(data)
+			}
+
+			chunk := data[i:end]
+
+			// Write chunk header with size
+			chunkHeader := fmt.Sprintf("%x\r\n", len(chunk))
+			if _, err := w.writer.Write([]byte(chunkHeader)); err != nil {
+				return 0, err
+			}
+
+			// Write chunk data
+			if _, err := w.writer.Write(chunk); err != nil {
+				return 0, err
+			}
+
+			// Write chunk terminator
+			if _, err := w.writer.Write([]byte("\r\n")); err != nil {
+				return 0, err
+			}
 		}
-		if _, err := w.writer.Write(data); err != nil {
-			return 0, err
-		}
-		if _, err := w.writer.Write([]byte("\r\n")); err != nil {
-			return 0, err
-		}
-		// 结束块
+
+		// Write final chunk (zero-length chunk) to terminate transmission
 		if _, err := w.writer.Write([]byte("0\r\n\r\n")); err != nil {
 			return 0, err
 		}
 	} else {
-		// 普通传输
+		// Standard transferß
 		if _, err := w.writer.Write(data); err != nil {
 			return 0, err
 		}

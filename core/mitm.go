@@ -95,6 +95,20 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 		clientWriteCh: make(chan func(), 10),
 	}
 	go func() {
+		// panic 恢复
+		defer func() {
+			if err := recover(); err != nil {
+				log.Println(err)
+				for {
+					select {
+					case <-connector.clientWriteCh:
+						// 丢弃一个值
+					default:
+						return // channel 已空
+					}
+				}
+			}
+		}()
 		for fn := range connector.clientWriteCh {
 			fn()
 		}

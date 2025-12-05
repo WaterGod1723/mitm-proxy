@@ -8,8 +8,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/WaterGod1723/mitm-proxy/core"
@@ -56,7 +58,20 @@ func main() {
 			req.Host,
 			req.URL.Path,
 		}
-		LuaRewriteReq(&arr)
+		bodyFilePath := LuaRewriteReq(&arr)
+		// 直接写入响应
+		if bodyFilePath != "" {
+			f, err := os.ReadFile(bodyFilePath)
+			if err != nil {
+				log.Println("open file error: ", err)
+				return nil
+			}
+			return func(w *core.ResponseWriter) error {
+				w.SetStatus(http.StatusOK)
+				w.Write(f)
+				return nil
+			}
+		}
 		req.URL.Scheme = arr[0]
 		req.URL.Host = arr[1]
 		req.Host = arr[1]
@@ -84,8 +99,13 @@ func main() {
 	// 	}
 	// 	return nil
 	// })
+	go c.Start(*addr)
 
-	c.Start(*addr)
+	// 监听系统退出信号
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	<-ch
+	os.Exit(0)
 }
 
 func LuaGetProxy(host string) core.ProxyArray {
@@ -149,12 +169,12 @@ func LuaGetInjectHTML(host string) string {
 	return string(b)
 }
 
-func LuaRewriteReq(uri *[3]string) {
+func LuaRewriteReq(uri *[3]string) (bodyFilePath string) {
 	L := luaPool.Get().(*lua.LState)
 	defer luaPool.Put(L)
 	err := L.CallByParam(lua.P{
 		Fn:      L.GetGlobal("GoRequest"),
-		NRet:    3,
+		NRet:    4,
 		Protect: true,
 	}, lua.LString(uri[0]), lua.LString(uri[1]), lua.LString(uri[2]))
 
@@ -163,10 +183,16 @@ func LuaRewriteReq(uri *[3]string) {
 		return
 	}
 
-	uri[0] = L.ToString(-3)
-	uri[1] = L.ToString(-2)
-	uri[2] = L.ToString(-1)
-	L.Pop(3)
+	// uri[0] = L.ToString(-3)
+	// uri[1] = L.ToString(-2)
+	// uri[2] = L.ToString(-1)
+	// L.Pop(3)
+	uri[0] = L.ToString(-4)
+	uri[1] = L.ToString(-3)
+	uri[2] = L.ToString(-2)
+	bodyFilePath = L.ToString(-1)
+	L.Pop(4)
+	return
 }
 
 func mangeRouter(c *core.Container) {
