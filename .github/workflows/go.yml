@@ -1,43 +1,67 @@
-name: Go
+# .github/workflows/release.yml
+name: Release Go App
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags:
+      - 'v*.*.*'  # 只有推送符合 v 开头的 tag 时才触发发布
 
 jobs:
-
-  build:
-    runs-on: windows-latest
+  release:
+    runs-on: ubuntu-latest  # 主构建机用 Linux，交叉编译其他平台
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.22'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
 
-    - name: Build examples/main.go
-      run: go build -o examples/main.exe examples/main.go
+      - name: Prepare assets directory
+        run: |
+          mkdir -p assets
+          cp examples/config.lua assets/
+          cp examples/inject.html assets/
+          cp -r examples/cert assets/
 
-    - name: Create dist directory
-      run: mkdir dist -Force
+      - name: Build for multiple platforms
+        run: |
+          mkdir -p dist
 
-    - name: Copy build artifacts to dist
-      run: |
-        # 复制编译产物到 dist 目录
-        cp examples/main.exe dist/
+          # Linux
+          GOOS=linux GOARCH=amd64 go build -o dist/mitm-linux-amd64 examples/main.go
+          # macOS Intel & Apple Silicon
+          GOOS=darwin GOARCH=amd64 go build -o dist/mitm-darwin-amd64 examples/main.go
+          GOOS=darwin GOARCH=arm64 go build -o dist/mitm-darwin-arm64 examples/main.go
+          # Windows
+          GOOS=windows GOARCH=amd64 go build -o dist/mitm-windows-amd64.exe examples/main.go
 
-        # 复制 examples 目录下的非 Go 相关文件到 dist 目录，保留 cert 目录结构
-        cp -r examples/cert dist/ -Force
-        cp examples/config.lua dist/ -Force
-        cp examples/inject.html dist/ -Force
+      - name: Package each platform with assets
+        run: |
+          cd dist
 
-    - name: Commit and push dist directory
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add dist
-        git commit -m "Add compiled artifacts to dist directory [skip ci]"
-        git push origin main
+          # Linux
+          mkdir mitm-linux-amd64 && cp ../assets/* mi t m-linux-amd64/ -r && cp mitm-linux-amd64 ./mitm-linux-amd64/
+          tar -czf mitm-linux-amd64.tar.gz mitm-linux-amd64
+
+          # macOS Intel
+          mkdir mitm-darwin-amd64 && cp ../assets/* mitm-darwin-amd64/ -r && cp mitm-darwin-amd64 ./mitm-darwin-amd64/
+          tar -czf mitm-darwin-amd64.tar.gz mitm-darwin-amd64
+
+          # macOS Apple Silicon
+          mkdir mitm-darwin-arm64 && cp ../assets/* mitm-darwin-arm64/ -r && cp mitm-darwin-arm64 ./mitm-darwin-arm64/
+          tar -czf mitm-darwin-arm64.tar.gz mitm-darwin-arm64
+
+          # Windows
+          mkdir mitm-windows-amd64 && cp ../assets/* mitm-windows-amd64/ -r && cp mitm-windows-amd64.exe ./mitm-windows-amd64/
+          zip -r mitm-windows-amd64.zip mitm-windows-amd64
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
