@@ -104,6 +104,7 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 					case <-connector.clientWriteCh:
 						// 丢弃一个值
 					default:
+						(*connector.client.conn).Close()
 						return // channel 已空
 					}
 				}
