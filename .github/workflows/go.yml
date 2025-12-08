@@ -42,20 +42,28 @@ jobs:
           cd dist
 
           # Linux
-          mkdir mitm-linux-amd64 && cp ../assets/* mi t m-linux-amd64/ -r && cp mitm-linux-amd64 ./mitm-linux-amd64/
-          tar -czf mitm-linux-amd64.tar.gz mitm-linux-amd64
+          rm -rf pkg && mkdir -p pkg/myapp-linux-amd64
+          cp ../assets/* pkg/myapp-linux-amd64/ -R
+          cp myapp-linux-amd64 pkg/myapp-linux-amd64/
+          tar -czf myapp-linux-amd64.tar.gz -C pkg myapp-linux-amd64
 
           # macOS Intel
-          mkdir mitm-darwin-amd64 && cp ../assets/* mitm-darwin-amd64/ -r && cp mitm-darwin-amd64 ./mitm-darwin-amd64/
-          tar -czf mitm-darwin-amd64.tar.gz mitm-darwin-amd64
+          rm -rf pkg && mkdir -p pkg/myapp-darwin-amd64
+          cp ../assets/* pkg/myapp-darwin-amd64/ -R
+          cp myapp-darwin-amd64 pkg/myapp-darwin-amd64/
+          tar -czf myapp-darwin-amd64.tar.gz -C pkg myapp-darwin-amd64
 
           # macOS Apple Silicon
-          mkdir mitm-darwin-arm64 && cp ../assets/* mitm-darwin-arm64/ -r && cp mitm-darwin-arm64 ./mitm-darwin-arm64/
-          tar -czf mitm-darwin-arm64.tar.gz mitm-darwin-arm64
+          rm -rf pkg && mkdir -p pkg/myapp-darwin-arm64
+          cp ../assets/* pkg/myapp-darwin-arm64/ -R
+          cp myapp-darwin-arm64 pkg/myapp-darwin-arm64/
+          tar -czf myapp-darwin-arm64.tar.gz -C pkg myapp-darwin-arm64
 
-          # Windows
-          mkdir mitm-windows-amd64 && cp ../assets/* mitm-windows-amd64/ -r && cp mitm-windows-amd64.exe ./mitm-windows-amd64/
-          zip -r mitm-windows-amd64.zip mitm-windows-amd64
+          # Windows (zip)
+          rm -rf pkg && mkdir -p pkg/myapp-windows-amd64
+          cp ../assets/* pkg/myapp-windows-amd64/ -R
+          cp myapp-windows-amd64.exe pkg/myapp-windows-amd64/
+          zip -r myapp-windows-amd64.zip -j pkg/myapp-windows-amd64/*
 
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2
