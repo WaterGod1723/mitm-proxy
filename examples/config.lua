@@ -12,17 +12,27 @@
 --              可以用于实现环境切换、路径重定向、响应mock等功能
 --              当返回bodyFilePath时，代理会直接返回该文件的内容作为响应，而不转发请求到原始服务器
 function GoRequest(protocol, host, path)
-    -- 示例：根据特定条件修改请求主机
-    -- 如果请求主机是 "web.amh-group.com:8000" 并且路径以 "/smart-truck" 或 "/microweb-pc/" 开头
-    -- 则将主机修改为 "web.amh-group.com:8001"
-    if host == "web.amh-group.com:8000" and (string.find(path, "^/smart%-truck", 1, false)  or string.find(path, "^/microweb%-pc/", 1, false) ) then
-        host = "web.amh-group.com:8001"
-        print("change host")
+    -- luban dms
+    local bodyFilePath = ""
+    -- 重写chunk-common.js，已实现线上前端资源请求本地的前端资源
+    -- if string.find(host, "amh%-group%.com$", 1, false) and string.find(path, "chunk%-common%..+%.js$", 1, false) then
+    --     bodyFilePath = "./overrides/chunk-common.js"
+    -- end
+
+
+    if host == "devstatic.amh-group.com" then
+        if string.find(path, "^/smart%-truck", 1, false) then
+            host = "web.amh-group.com:8001"
+        elseif string.find(path, "^/entry_app_js", 1, false) then
+            host = "web.amh-group.com:8001"
+        elseif string.find(path, "/mw-hubble-ui/micro.json", 1, true) then
+            host = "web.amh-group.com:8001"
+        end
     end
 
     -- 返回重写后的协议、主机和路径
     -- 注意：如果需要替换请求体，可以返回第四个参数bodyFilePath，指向本地文件
-    return protocol, host, path
+    return protocol, host, path, bodyFilePath
 end
 
 --- GoProxy 函数用于配置请求的代理服务器
