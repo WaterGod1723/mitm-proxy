@@ -1,0 +1,29 @@
+{
+    "Lua.completion.enable": true,
+    "Lua.diagnostics.enable": true,
+    "Lua.hint.enable": true,
+    "Lua.hint.paramName": "All",
+    "Lua.hint.paramType": true,
+    "Lua.hint.returnType": true,
+    "Lua.hint.setType": true,
+    "Lua.workspace.library": [
+        "${workspaceFolder}/examples/lua_proxy"
+    ],
+    "Lua.workspace.checkThirdParty": false,
+    "Lua.diagnostics.globals": [
+        "url",
+        "method",
+        "headers",
+        "has_body",
+        "status",
+        "content_length",
+        "modified_headers",
+        "proxy_headers",
+        "protocol",
+        "host",
+        "path"
+    ],
+    "files.associations": {
+        "*.lua": "lua"
+    }
+}
