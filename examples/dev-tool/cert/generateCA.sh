@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 指定证书的有效期
-DAYS=36500
+DAYS=10
 
 # 生成私钥
 openssl genrsa -out key.pem 2048
