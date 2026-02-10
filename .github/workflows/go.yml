@@ -21,21 +21,21 @@ jobs:
       - name: Prepare assets directory
         run: |
           mkdir -p assets
-          cp examples/config.lua assets/
-          cp examples/inject.html assets/
-          cp -r examples/cert assets/
+          cp examples/rewrite_by_lua/config.lua assets/
+          cp examples/rewrite_by_lua/inject.html assets/
+          cp -r examples/rewrite_by_lua/cert assets/
 
       - name: Build for multiple platforms
         run: |
           mkdir -p dist
 
           # Linux
-          GOOS=linux GOARCH=amd64 go build -o dist/mitm-linux-amd64 examples/main.go
+          GOOS=linux GOARCH=amd64 go build -o dist/mitm-linux-amd64 examples/rewrite_by_lua/main.go
           # macOS Intel & Apple Silicon
-          GOOS=darwin GOARCH=amd64 go build -o dist/mitm-darwin-amd64 examples/main.go
-          GOOS=darwin GOARCH=arm64 go build -o dist/mitm-darwin-arm64 examples/main.go
+          GOOS=darwin GOARCH=amd64 go build -o dist/mitm-darwin-amd64 examples/rewrite_by_lua/main.go
+          GOOS=darwin GOARCH=arm64 go build -o dist/mitm-darwin-arm64 examples/rewrite_by_lua/main.go
           # Windows
-          GOOS=windows GOARCH=amd64 go build -o dist/mitm-windows-amd64.exe examples/main.go
+          GOOS=windows GOARCH=amd64 go build -o dist/mitm-windows-amd64.exe examples/rewrite_by_lua/main.go
 
       - name: Package each platform with assets
         run: |

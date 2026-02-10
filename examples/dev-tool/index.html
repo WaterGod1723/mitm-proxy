@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dev Tool Proxy</title>
+    <style>
+      :root {
+        --primary: #3182ce;
+        --primary-hover: #2c5aa0;
+        --success: #38a169;
+        --warning: #d69e2e;
+        --danger: #e53e3e;
+        --bg-page: #f9fafb;
+        --bg-card: #ffffff;
+        --border: #e2e8f0;
+        --text-primary: #1a202c;
+        --text-secondary: #4a5568;
+        --radius: 8px;
+        --shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+        --transition-fast: 0.15s;
+        --transition-normal: 0.3s;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: var(--bg-page);
+        color: var(--text-primary);
+        line-height: 1.5;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      header h1 {
+        font-size: 28px;
+        font-weight: 600;
+        margin: 0 0 24px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid var(--primary);
+        color: var(--text-primary);
+      }
+
+      .card {
+        background: var(--bg-card);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 24px;
+        margin-bottom: 32px;
+      }
+
+      .card > h2 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        font-size: 22px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .search-box {
+        position: relative;
+        display: flex;
+        flex: 1;
+        min-width: 200px;
+      }
+
+      .search-box input {
+        width: 100%;
+        padding: 10px 40px 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 14px;
+        transition: border-color var(--transition-fast),
+          box-shadow var(--transition-fast);
+      }
+      .search-box input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
+      }
+
+      .search-loading-spinner {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 20px;
+        height: 20px;
+        border: 2px solid #e2e8f0;
+        border-top: 2px solid var(--primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        display: none;
+      }
+
+      @keyframes spin {
+        to {
+          transform: translateY(-50%) rotate(360deg);
+        }
+      }
+
+      button {
+        padding: 10px 16px;
+        border: none;
+        border-radius: var(--radius);
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color var(--transition-fast),
+          transform var(--transition-fast);
+      }
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(0);
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-primary {
+        background-color: var(--primary);
+        color: white;
+      }
+      .btn-primary:hover:not(:disabled) {
+        background-color: var(--primary-hover);
+      }
+
+      .btn-danger {
+        background-color: var(--danger);
+        color: white;
+      }
+      .btn-danger:hover:not(:disabled) {
+        background-color: #c53030;
+      }
+
+      .request-list {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .request-item {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        background-color: var(--bg-card);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        transition: box-shadow var(--transition-fast);
+      }
+      .request-item:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      }
+
+      .request-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .method {
+        padding: 4px 10px;
+        border-radius: 4px;
+        color: white;
+        font-weight: bold;
+        text-transform: uppercase;
+        font-size: 12px;
+      }
+      .method.GET {
+        background-color: var(--success);
+      }
+      .method.POST {
+        background-color: var(--primary);
+      }
+      .method.PUT {
+        background-color: var(--warning);
+        color: #1a202c;
+      }
+      .method.DELETE {
+        background-color: var(--danger);
+      }
+
+      .url {
+        font-weight: 600;
+        color: var(--primary);
+        max-width: 500px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .status {
+        padding: 4px 10px;
+        border-radius: 4px;
+        color: white;
+        font-weight: bold;
+        font-size: 12px;
+      }
+      .status-2xx {
+        background-color: var(--success);
+      }
+      .status-3xx {
+        background-color: #319795;
+      }
+      .status-4xx {
+        background-color: var(--warning);
+        color: #1a202c;
+      }
+      .status-5xx {
+        background-color: var(--danger);
+      }
+
+      .details > div {
+        font-size: 14px;
+        color: var(--text-secondary);
+        margin: 4px 0;
+      }
+
+      textarea.config-textarea {
+        width: 100%;
+        height: 280px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 13px;
+        resize: vertical;
+        margin-bottom: 16px;
+        transition: border-color var(--transition-fast),
+          box-shadow var(--transition-fast);
+      }
+      textarea.config-textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
+      }
+
+      .origin-rules table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+        font-size: 14px;
+      }
+      .origin-rules th,
+      .origin-rules td {
+        padding: 12px 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .origin-rules th {
+        background-color: #f8fafc;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+      .origin-rules .rule-name,
+      .origin-rules .rule-origin {
+        max-width: 250px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .origin-rules .actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .add-origin-rule {
+        padding-top: 20px;
+        border-top: 1px dashed var(--border);
+      }
+      .add-origin-rule h3 {
+        margin: 0 0 16px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .add-origin-rule .input-group {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: end;
+      }
+      .add-origin-rule input {
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 14px;
+        min-width: 180px;
+        transition: border-color var(--transition-fast),
+          box-shadow var(--transition-fast);
+      }
+      .add-origin-rule input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
+      }
+
+      /* Toast */
+      #toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: var(--radius);
+        color: white;
+        font-weight: 500;
+        z-index: 1000;
+        transform: translateX(200%);
+        transition: transform var(--transition-normal) ease;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      }
+      #toast.show {
+        transform: translateX(0);
+      }
+      #toast.success {
+        background-color: var(--success);
+      }
+      #toast.error {
+        background-color: var(--danger);
+      }
+
+      .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 16px;
+        margin-top: 24px;
+        padding: 16px;
+        background: var(--bg-card);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+      .pagination button {
+        padding: 8px 16px;
+      }
+      .pagination #pageInfo {
+        min-width: 150px;
+        text-align: center;
+        font-weight: 500;
+        color: var(--text-primary);
+      }
+
+      .body-section {
+        margin-top: 16px;
+        padding: 12px;
+        background-color: #f8fafc;
+        border-radius: var(--radius);
+        border-left: 4px solid var(--primary);
+      }
+      .body-section .body-content {
+        display: none;
+      }
+      .body-section.expanded .body-content {
+        display: block;
+      }
+
+      .body-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .body-header h4 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .expand-btn {
+        background: none;
+        border: 1px solid var(--border);
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--primary);
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all var(--transition-fast);
+      }
+      .expand-btn:hover {
+        background-color: var(--primary);
+        color: white;
+        border-color: var(--primary);
+      }
+      .body-content {
+        margin: 12px 0 0 0;
+        padding: 12px;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 13px;
+        color: var(--text-primary);
+      }
+
+      .empty-state {
+        color: #718096;
+        text-align: center;
+        padding: 24px;
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Dev Tool Proxy Dashboard</h1>
+      </header>
+
+      <section class="card">
+        <div class="controls">
+          <div class="search-box">
+            <input
+              type="text"
+              id="searchInput"
+              placeholder="Search HTTP protocol text..."
+              autocomplete="off"
+            />
+            <div id="searchLoadingSpinner" class="search-loading-spinner"></div>
+          </div>
+          <button class="btn-danger" id="clearBtn">Clear Requests</button>
+        </div>
+
+        <div class="request-list" id="requestList">
+          <!-- Requests loaded here -->
+        </div>
+
+        <div class="pagination" id="pagination" style="display: none">
+          <button id="prevPage" class="btn-primary">&laquo; Previous</button>
+          <span id="pageInfo"></span>
+          <button id="nextPage" class="btn-primary">Next &raquo;</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Configuration</h2>
+        <form id="configForm">
+          <textarea
+            class="config-textarea"
+            id="configTextarea"
+            placeholder="Configuration will be loaded here..."
+          ></textarea>
+          <button class="btn-primary" type="submit">
+            Update Configuration
+          </button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Origin-based Tracking Rules</h2>
+        <div class="origin-rules">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Origin</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="originRulesList">
+              <!-- Rules loaded here -->
+            </tbody>
+          </table>
+
+          <div class="add-origin-rule">
+            <h3>Add New Origin Rule</h3>
+            <div class="input-group">
+              <input type="text" id="originRuleName" placeholder="Rule Name" />
+              <input
+                type="text"
+                id="originRuleOrigin"
+                placeholder="Origin (e.g., example.com)"
+              />
+              <button class="btn-primary" id="addOriginRuleBtn">
+                Add Rule
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+      // ========== UTILS ==========
+      function escapeHtml(str) {
+        if (typeof str !== "string") return "";
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function getHTTPMethod(httpText) {
+        if (!httpText) return "UNKNOWN";
+        const lines = httpText.split("\n");
+        if (lines.length === 0) return "UNKNOWN";
+        const requestLine = lines[0];
+        const match = requestLine.match(/^(\w+)\s+/);
+        return match ? match[1] : "UNKNOWN";
+      }
+
+      function getHTTPUrl(httpText) {
+        if (!httpText) return "N/A";
+        const lines = httpText.split("\n");
+        if (lines.length === 0) return "N/A";
+        const requestLine = lines[0];
+        const match = requestLine.match(/^\w+\s+(\S+)\s+/);
+        return match ? match[1] : "N/A";
+      }
+
+      function getHTTPStatusCode(httpText) {
+        if (!httpText) return "N/A";
+        const lines = httpText.split("\n");
+        if (lines.length === 0) return "N/A";
+        const statusLine = lines[0];
+        const match = statusLine.match(/HTTP\/\d\.\d\s+(\d+)\s+/);
+        return match ? match[1] : "N/A";
+      }
+
+      let allRequests = [];
+      let currentPage = 1;
+      const itemsPerPage = 10;
+
+      function showToast(message, type = "success") {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.className = `show ${type}`;
+        setTimeout(() => toast.classList.remove("show"), 3000);
+      }
+
+      function showSearchLoading() {
+        document.getElementById("searchLoadingSpinner").style.display = "block";
+      }
+
+      function hideSearchLoading() {
+        document.getElementById("searchLoadingSpinner").style.display = "none";
+      }
+
+      // ========== API ==========
+      let preQuery
+      async function loadRequests(query = "") {
+        // 标准化 query（如转小写、trim 等，根据后端行为调整）
+        const normalizedQuery = query.trim();
+
+        // 判断是否可以本地搜索：是否存在一个已缓存的 oldQuery，使得 normalizedQuery.includes(oldQuery)
+        const canSearchLocally = preQuery && normalizedQuery.includes(preQuery);
+        preQuery = normalizedQuery;
+
+        if (canSearchLocally && allRequests.length > 0) {
+          // 本地过滤 allRequests
+          const filtered = allRequests.filter((item) =>
+            // 假设 item 是对象，需要搜索其所有 value（字符串）是否包含 query
+            Object.values(item).some((val) =>
+              String(val).toLowerCase().includes(normalizedQuery.toLowerCase())
+            )
+          );
+          renderRequests(filtered);
+          hideSearchLoading();
+          return;
+        }
+
+        try {
+          const url =
+            "/api/requests" + (query ? "?q=" + encodeURIComponent(query) : "");
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const requests = await res.json();
+          renderRequests(requests);
+        } catch (err) {
+          console.error(err);
+          showToast("Failed to load requests", "error");
+        } finally {
+          hideSearchLoading();
+        }
+      }
+
+      function renderRequests(requests) {
+        allRequests = Array.isArray(requests) ? requests : [];
+        currentPage = 1;
+        renderPage();
+      }
+
+      function renderPage() {
+        const container = document.getElementById("requestList");
+        container.innerHTML = "";
+
+        if (allRequests.length === 0) {
+          container.innerHTML = '<p class="empty-state">No requests yet.</p>';
+          document.getElementById("pagination").style.display = "none";
+          return;
+        }
+
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = Math.min(
+          startIndex + itemsPerPage,
+          allRequests.length
+        );
+        const currentRequests = allRequests.slice(startIndex, endIndex);
+
+        currentRequests.forEach((req) => {
+          let statusClass = "status-2xx";
+          const statusCode = parseInt(getHTTPStatusCode(req.response_text), 10);
+          if (statusCode >= 300 && statusCode < 400) statusClass = "status-3xx";
+          else if (statusCode >= 400 && statusCode < 500)
+            statusClass = "status-4xx";
+          else if (statusCode >= 500) statusClass = "status-5xx";
+
+          const reqId =
+            "req-" + (req.id || Math.random().toString(36).slice(2));
+          const resId =
+            "res-" + (req.id || Math.random().toString(36).slice(2));
+
+          const el = document.createElement("div");
+          el.className = "request-item";
+          el.innerHTML = `
+                    <div class="request-header">
+                        <span class="method ${getHTTPMethod(
+                          req.request_text
+                        )}">${getHTTPMethod(req.request_text)}</span>
+                        <span class="url" title="${escapeHtml(
+                          getHTTPUrl(req.request_text)
+                        )}">${escapeHtml(getHTTPUrl(req.request_text))}</span>
+                        <span class="status ${statusClass}">${getHTTPStatusCode(
+            req.response_text
+          )}</span>
+                    </div>
+                    <div class="details">
+                        <div>Duration: ${req.duration || "N/A"}</div>
+                        <div>Time: ${
+                          req.timestamp
+                            ? new Date(req.timestamp).toLocaleString()
+                            : "N/A"
+                        }</div>
+                    </div>
+                    <div class="body-section" id="${reqId}">
+                        <div class="body-header" onclick="toggleBody('${reqId}')">
+                            <h4>Request Text:</h4>
+                            <button class="expand-btn">Expand</button>
+                        </div>
+                        <pre class="body-content">${escapeHtml(
+                          req.request_text || ""
+                        )}</pre>
+                    </div>
+                    <div class="body-section" id="${resId}">
+                        <div class="body-header" onclick="toggleBody('${resId}')">
+                            <h4>Response Text:</h4>
+                            <button class="expand-btn">Expand</button>
+                        </div>
+                        <pre class="body-content">${escapeHtml(
+                          req.response_text || ""
+                        )}</pre>
+                    </div>
+                `;
+          container.appendChild(el);
+        });
+
+        updatePaginationInfo();
+      }
+
+      function toggleBody(sectionId) {
+        const section = document.getElementById(sectionId);
+        if (!section) return;
+
+        const isExpanded = section.classList.contains("expanded");
+        section.classList.toggle("expanded", !isExpanded);
+        const button = section.querySelector(".expand-btn");
+        if (button) {
+          button.textContent = isExpanded ? "Expand" : "Collapse";
+        }
+      }
+
+      function updatePaginationInfo() {
+        const totalPages = Math.ceil(allRequests.length / itemsPerPage);
+        const pageInfo = document.getElementById("pageInfo");
+        pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${allRequests.length} total)`;
+
+        const prevBtn = document.getElementById("prevPage");
+        const nextBtn = document.getElementById("nextPage");
+        prevBtn.disabled = currentPage === 1;
+        nextBtn.disabled = currentPage === totalPages || totalPages === 0;
+
+        document.getElementById("pagination").style.display = "flex";
+      }
+
+      async function loadConfig() {
+        try {
+          const res = await fetch("/api/config");
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const config = await res.json();
+          document.getElementById("configTextarea").value = JSON.stringify(
+            config,
+            null,
+            2
+          );
+          renderOriginRules(config.origins || []);
+        } catch (err) {
+          console.error(err);
+          showToast("Failed to load config", "error");
+        }
+      }
+
+      async function submitConfig(configObj) {
+        try {
+          const res = await fetch("/api/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(configObj),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          showToast("Configuration updated!");
+          loadConfig();
+        } catch (err) {
+          showToast("Save failed: " + err.message, "error");
+        }
+      }
+
+      let searchTimeoutId = null;
+      function debounce(func, delay) {
+        return function (...args) {
+          clearTimeout(searchTimeoutId);
+          searchTimeoutId = setTimeout(() => func.apply(this, args), delay);
+        };
+      }
+
+      const debouncedLoadRequests = debounce((query) => {
+        showSearchLoading();
+        loadRequests(query);
+      }, 300);
+
+      // ========== EVENT HANDLERS ==========
+      // 用于跟踪输入法是否正在编辑
+      let isComposing = false;
+
+      // 监听输入法开始事件
+      document.getElementById("searchInput").addEventListener("compositionstart", () => {
+        isComposing = true;
+      });
+
+      // 监听输入法结束事件
+      document.getElementById("searchInput").addEventListener("compositionend", (e) => {
+        isComposing = false;
+        // 输入法结束后立即触发搜索
+        debouncedLoadRequests(e.target.value);
+      });
+
+      // 监听 input 事件，但只有在非输入法编辑状态时才触发搜索
+      document.getElementById("searchInput").addEventListener("input", (e) => {
+        if (!isComposing) {
+          debouncedLoadRequests(e.target.value);
+        }
+      });
+
+      document.getElementById("clearBtn").addEventListener("click", () => {
+        if (confirm("Clear all captured requests? This cannot be undone.")) {
+          fetch("/api/clear-requests", { method: "POST" })
+            .then((res) => {
+              if (res.ok) {
+                loadRequests();
+              } else {
+                throw new Error();
+              }
+            })
+            .catch(() => showToast("Clear failed", "error"));
+        }
+      });
+
+      document.getElementById("configForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        try {
+          const config = JSON.parse(
+            document.getElementById("configTextarea").value
+          );
+          submitConfig(config);
+        } catch (err) {
+          showToast("Invalid JSON format", "error");
+        }
+      });
+
+      function renderOriginRules(rules) {
+        const tbody = document.getElementById("originRulesList");
+        tbody.innerHTML = "";
+        rules.forEach((rule, idx) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+                    <td class="rule-name" title="${escapeHtml(
+                      rule.name
+                    )}">${escapeHtml(rule.name)}</td>
+                    <td class="rule-origin" title="${escapeHtml(
+                      rule.origin
+                    )}">${escapeHtml(rule.origin)}</td>
+                    <td>
+                        <input type="checkbox" ${rule.enabled ? "checked" : ""}
+                            onchange="toggleRule(${idx}, this.checked)">
+                    </td>
+                    <td class="actions">
+                        <button class="btn-danger" onclick="deleteRule(${idx})">Delete</button>
+                    </td>
+                `;
+          tbody.appendChild(row);
+        });
+      }
+
+      window.toggleRule = (index, enabled) => {
+        try {
+          const config = JSON.parse(
+            document.getElementById("configTextarea").value
+          );
+          if (config.origins?.[index] !== undefined) {
+            config.origins[index].enabled = enabled;
+            submitConfig(config);
+          }
+        } catch (e) {
+          showToast("Failed to update rule", "error");
+        }
+      };
+
+      window.deleteRule = (index) => {
+        if (!confirm("Delete this rule?")) return;
+        try {
+          const config = JSON.parse(
+            document.getElementById("configTextarea").value
+          );
+          if (
+            Array.isArray(config.origins) &&
+            index >= 0 &&
+            index < config.origins.length
+          ) {
+            config.origins.splice(index, 1);
+            submitConfig(config);
+          }
+        } catch (e) {
+          showToast("Failed to delete rule", "error");
+        }
+      };
+
+      document
+        .getElementById("addOriginRuleBtn")
+        .addEventListener("click", () => {
+          const name = document.getElementById("originRuleName").value.trim();
+          const origin = document
+            .getElementById("originRuleOrigin")
+            .value.trim();
+          if (!name || !origin) {
+            showToast("Name and origin are required", "error");
+            return;
+          }
+          try {
+            const config = JSON.parse(
+              document.getElementById("configTextarea").value
+            );
+            if (!Array.isArray(config.origins)) config.origins = [];
+            config.origins.push({
+              id: "origin_" + Date.now(),
+              name,
+              origin,
+              enabled: true,
+              record_body: true,
+            });
+            submitConfig(config);
+            document.getElementById("originRuleName").value = "";
+            document.getElementById("originRuleOrigin").value = "";
+          } catch (e) {
+            showToast("Failed to add rule", "error");
+          }
+        });
+
+      document.getElementById("prevPage").addEventListener("click", () => {
+        if (currentPage > 1) {
+          currentPage--;
+          renderPage();
+        }
+      });
+
+      document.getElementById("nextPage").addEventListener("click", () => {
+        const totalPages = Math.ceil(allRequests.length / itemsPerPage);
+        if (currentPage < totalPages) {
+          currentPage++;
+          renderPage();
+        }
+      });
+
+      // ========== INIT ==========
+      loadRequests();
+      loadConfig();
+    </script>
+  </body>
+</html>

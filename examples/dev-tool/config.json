@@ -1,0 +1,66 @@
+{
+  "port": "8080",
+  "routes": [
+    {
+      "id": "route_1",
+      "name": "Test Route Rule",
+      "match_host": "httpbin.org",
+      "match_path_prefix": "/test",
+      "target_host": "httpbin.org",
+      "target_port": 443,
+      "enabled": true
+    },
+    {
+      "id": "route_2",
+      "name": "API Route Rule",
+      "match_host": "api.example.com",
+      "match_path_prefix": "/v1",
+      "target_host": "api-dev.example.com",
+      "target_port": 443,
+      "enabled": true
+    }
+  ],
+  "rewrites": [
+    {
+      "id": "rewrite_1",
+      "name": "Test Path Rewrite",
+      "match_path": "/api/test/(.*)",
+      "rewrite_path": "/api/v1/$1",
+      "target_host": "",
+      "enabled": true
+    },
+    {
+      "id": "rewrite_2",
+      "name": "User Path Rewrite",
+      "match_path": "/user/(.*)",
+      "rewrite_path": "/profile/$1",
+      "target_host": "",
+      "enabled": true
+    }
+  ],
+  "origins": [
+    {
+      "id": "origin_123456789",
+      "name": "Example.com",
+      "origin": "example.com",
+      "enabled": true,
+      "record_body": true
+    },
+    {
+      "id": "origin_987654321",
+      "name": "Test Site",
+      "origin": "test.com",
+      "enabled": false,
+      "record_body": true
+    },
+    {
+      "id": "origin_1767247903450",
+      "name": "chatbaidu",
+      "origin": "chat.baidu.com",
+      "enabled": true,
+      "record_body": true
+    }
+  ],
+  "record_requests": true,
+  "max_request_history": 1000
+}
