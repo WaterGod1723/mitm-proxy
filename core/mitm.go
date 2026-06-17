@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"compress/zlib"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -38,6 +39,9 @@ type Container struct {
 	processRequest  func(req *http.Request) ResponseWriteFunc
 	processResponse func(resp *http.Response) ResponseWriteFunc
 	insertHTMLFn    func(resp *http.Response) error
+
+	listener net.Listener
+	stopOnce sync.Once
 }
 
 type MyRequest struct {
@@ -61,7 +65,7 @@ func (c *Container) Start(addr string) {
 		log.Fatal(err)
 	}
 
-	listener, err := net.Listen("tcp", addr)
+	c.listener, err = net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Println("some error", err)
 		time.Sleep(time.Second * 10)
@@ -72,13 +76,24 @@ func (c *Container) Start(addr string) {
 	log.Println("server on http://localhost:" + c.port)
 
 	for {
-		conn, err := listener.Accept()
+		conn, err := c.listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			log.Fatal(err)
 		}
 
 		go c.addConnector(&conn)
 	}
+}
+
+func (c *Container) Stop() {
+	c.stopOnce.Do(func() {
+		if c.listener != nil {
+			c.listener.Close()
+		}
+	})
 }
 
 func (c *Container) addConnector(clientConn *net.Conn) {
@@ -192,6 +207,14 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 
 		if c.insertHTMLFn != nil {
 			req.Header.Set("accept-encoding", "gzip, deflate")
+		}
+
+		if req.URL.Scheme == "" {
+			if connector.client.isTls {
+				req.URL.Scheme = "https"
+			} else {
+				req.URL.Scheme = "http"
+			}
 		}
 
 		if c.processRequest != nil {
