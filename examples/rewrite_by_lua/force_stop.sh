@@ -1,0 +1,1 @@
+lsof -ti:8003 | xargs kill -9 2>/dev/null; echo "端口 8003 已清理"

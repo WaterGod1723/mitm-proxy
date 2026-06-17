@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
+	"text/template"
 	"time"
 
 	"github.com/WaterGod1723/mitm-proxy/core"
@@ -20,45 +24,44 @@ import (
 )
 
 // test
-var luaScript string
-var luaPool = sync.Pool{
-	New: func() interface{} {
-		L := lua.NewState()
-		// 加载 Lua 脚本
-		if err := L.DoString(luaScript); err != nil {
-			log.Fatal("Error:", err)
-		}
-		return L
-	},
-}
-
+var luaPool *sync.Pool
 var (
 	isAllowedCors = true
 	proxyCache    sync.Map
 )
 
-func init() {
-	luaScriptByte, err := os.ReadFile("config.lua")
-	if err != nil {
-		log.Fatal("read config error", err)
-	}
-	luaScript = string(luaScriptByte)
-}
-
 func main() {
-	go checkConfChange()
+	configName := flag.String("config", "default", "配置文件名（不含.lua后缀）或完整路径；默认为 configs/default.lua")
 	addr := flag.String("addr", "0.0.0.0:8003", "代理服务地址,0.0.0.0监听所有网卡,http协议")
-
 	flag.Parse()
+
+	configPath := resolveConfigPath(*configName)
+	luaScriptByte, err := os.ReadFile(configPath)
+	if err != nil {
+		log.Fatalf("read config error: %v (path: %s)", err, configPath)
+	}
+	luaScript := string(luaScriptByte)
+
+	luaPool = &sync.Pool{
+		New: func() interface{} {
+			L := lua.NewState()
+			// 加载 Lua 脚本
+			if err := L.DoString(luaScript); err != nil {
+				log.Fatal("Error:", err)
+			}
+			return L
+		},
+	}
+
+	go checkConfChange(configPath)
 	c := core.NewMITM()
 	mangeRouter(c)
 	c.ProcessRequest(func(req *http.Request) core.ResponseWriteFunc {
-		arr := [...]string{
-			req.URL.Scheme,
-			req.Host,
-			req.URL.Path,
+		protocol, host, path, bodyFilePath, newHeaders, err := LuaRewriteReq(req)
+		if err != nil {
+			log.Println("LuaRewriteReq error:", err)
+			return nil
 		}
-		bodyFilePath := LuaRewriteReq(&arr)
 		// 直接写入响应
 		if bodyFilePath != "" {
 			f, err := os.ReadFile(bodyFilePath)
@@ -72,10 +75,13 @@ func main() {
 				return nil
 			}
 		}
-		req.URL.Scheme = arr[0]
-		req.URL.Host = arr[1]
-		req.Host = arr[1]
-		req.URL.Path = arr[2]
+		req.URL.Scheme = protocol
+		req.URL.Host = host
+		req.Host = host
+		req.URL.Path = path
+		if newHeaders != nil {
+			req.Header = newHeaders
+		}
 		return nil
 	})
 
@@ -99,13 +105,36 @@ func main() {
 	// 	}
 	// 	return nil
 	// })
-	go c.Start(*addr)
+	localIP := getLocalIP()
+	listenAddr := *addr
+	fmt.Printf("mitm-proxy started at http://%s (listen on %s)\n", strings.Replace(listenAddr, "0.0.0.0", localIP, 1), listenAddr)
+
+	_, port, _ := net.SplitHostPort(listenAddr)
+	if port == "" {
+		port = "8003"
+	}
+	cwd, _ := os.Getwd()
+	scriptPath := filepath.Join(cwd, "start_chrome.sh")
+	if err := generateChromeScript(localIP, port, scriptPath); err != nil {
+		log.Println("generate start_chrome.sh error:", err)
+	} else {
+		fmt.Printf("Chrome launcher script generated: %s\n", scriptPath)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Start(*addr)
+	}()
 
 	// 监听系统退出信号
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	<-ch
-	os.Exit(0)
+
+	c.Stop()
+	wg.Wait()
 }
 
 func LuaGetProxy(host string) core.ProxyArray {
@@ -169,29 +198,104 @@ func LuaGetInjectHTML(host string) string {
 	return string(b)
 }
 
-func LuaRewriteReq(uri *[3]string) (bodyFilePath string) {
+// resolveConfigPath 解析配置文件路径：
+//   - 空字符串 -> configs/default.lua
+//   - 绝对路径或含路径分隔符 -> 直接使用（必要时补 .lua 后缀）
+//   - 其他 -> 在 configs/ 目录下查找对应的 .lua 文件
+func resolveConfigPath(name string) string {
+	if name == "" {
+		return "configs/default.lua"
+	}
+	if filepath.IsAbs(name) || strings.ContainsAny(name, "/\\") {
+		if !strings.HasSuffix(name, ".lua") {
+			name += ".lua"
+		}
+		return name
+	}
+	name = strings.TrimSuffix(name, ".lua")
+	return filepath.Join("configs", name+".lua")
+}
+
+// goHeadersToLua 将 Go 的 http.Header 转为 Lua 表。
+// 长度为 1 的切片转为字符串，多个值转为字符串数组。
+func goHeadersToLua(L *lua.LState, h http.Header) *lua.LTable {
+	tbl := L.NewTable()
+	for k, v := range h {
+		if len(v) == 1 {
+			tbl.RawSetString(k, lua.LString(v[0]))
+			continue
+		}
+		arr := L.NewTable()
+		for i, s := range v {
+			arr.RawSetInt(i+1, lua.LString(s))
+		}
+		tbl.RawSetString(k, arr)
+	}
+	return tbl
+}
+
+// luaTableToGoHeaders 将 Lua 表转回 http.Header。
+// 字符串值 -> 单元素切片；表值 -> 多元素切片；nil/false -> 删除该 header。
+func luaTableToGoHeaders(tbl *lua.LTable) http.Header {
+	h := http.Header{}
+	tbl.ForEach(func(k, v lua.LValue) {
+		keyStr, ok := k.(lua.LString)
+		if !ok {
+			return
+		}
+		key := string(keyStr)
+		switch v.Type() {
+		case lua.LTNil:
+			h.Del(key)
+		case lua.LTString:
+			h.Set(key, string(v.(lua.LString)))
+		case lua.LTTable:
+			var values []string
+			v.(*lua.LTable).ForEach(func(_ik, iv lua.LValue) {
+				if s, ok := iv.(lua.LString); ok {
+					values = append(values, string(s))
+				}
+			})
+			if len(values) > 0 {
+				h[http.CanonicalHeaderKey(key)] = values
+			} else {
+				h.Del(key)
+			}
+		}
+	})
+	return h
+}
+
+func LuaRewriteReq(req *http.Request) (protocol, host, path, bodyFilePath string, newHeaders http.Header, err error) {
 	L := luaPool.Get().(*lua.LState)
 	defer luaPool.Put(L)
-	err := L.CallByParam(lua.P{
+
+	headersTbl := goHeadersToLua(L, req.Header)
+
+	err = L.CallByParam(lua.P{
 		Fn:      L.GetGlobal("GoRequest"),
-		NRet:    4,
+		NRet:    5,
 		Protect: true,
-	}, lua.LString(uri[0]), lua.LString(uri[1]), lua.LString(uri[2]))
+	}, lua.LString(req.URL.Scheme), lua.LString(req.Host), lua.LString(req.URL.Path), headersTbl)
 
 	if err != nil {
 		log.Println("Error:", err)
 		return
 	}
 
-	// uri[0] = L.ToString(-3)
-	// uri[1] = L.ToString(-2)
-	// uri[2] = L.ToString(-1)
-	// L.Pop(3)
-	uri[0] = L.ToString(-4)
-	uri[1] = L.ToString(-3)
-	uri[2] = L.ToString(-2)
-	bodyFilePath = L.ToString(-1)
-	L.Pop(4)
+	protocol = L.ToString(-5)
+	host = L.ToString(-4)
+	path = L.ToString(-3)
+	bodyFilePath = L.ToString(-2)
+
+	// 第五个返回值为 headers 表：nil 或空表表示保持原请求头不变
+	if tbl, ok := L.Get(-1).(*lua.LTable); ok {
+		newHeaders = luaTableToGoHeaders(tbl)
+		if len(newHeaders) == 0 {
+			newHeaders = nil
+		}
+	}
+	L.Pop(5)
 	return
 }
 
@@ -275,10 +379,7 @@ func restartProgram() {
 	os.Exit(0)
 }
 
-func checkConfChange() {
-	// 配置文件路径
-	filePath := "config.lua"
-
+func checkConfChange(filePath string) {
 	// 初始化最后修改时间
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -289,4 +390,76 @@ func checkConfChange() {
 
 	// 开始检测文件更新
 	checkFileAndRestart(filePath, &lastModTime)
+}
+
+// getLocalIP 获取本机第一个非回环 IPv4 地址
+func getLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				return ipNet.IP.String()
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
+const chromeScriptTmpl = `#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+USER_DATA_DIR="$SCRIPT_DIR/chrome_dev_profile"
+PROXY_ADDR="http://{{.Host}}:{{.Port}}"
+
+echo "Starting Chrome with proxy: $PROXY_ADDR"
+echo "User data dir: $USER_DATA_DIR"
+
+mkdir -p "$USER_DATA_DIR"
+
+OS="$(uname -s)"
+case "$OS" in
+	MINGW*|MSYS*|CYGWIN*)
+		CHROME_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe"
+		if [ ! -f "$CHROME_PATH" ]; then
+			CHROME_PATH="/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"
+		fi
+		;;
+	Darwin)
+		CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+		;;
+	*)
+		CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+		;;
+esac
+
+"$CHROME_PATH" \
+  --user-data-dir="$USER_DATA_DIR" \
+  --proxy-server="$PROXY_ADDR" \
+  --ignore-certificate-errors \
+  --no-first-run \
+  --no-default-browser-check \
+  "$@"
+`
+
+type chromeScriptData struct {
+	Host string
+	Port string
+}
+
+func generateChromeScript(host, port, outPath string) error {
+	tmpl, err := template.New("chrome").Parse(chromeScriptTmpl)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, chromeScriptData{Host: host, Port: port}); err != nil {
+		return err
+	}
+	if err := os.WriteFile(outPath, buf.Bytes(), 0755); err != nil {
+		return err
+	}
+	return nil
 }

@@ -1,0 +1,10 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "userId": 12345,
+    "username": "test_user",
+    "email": "test@example.com",
+    "role": "admin"
+  }
+}

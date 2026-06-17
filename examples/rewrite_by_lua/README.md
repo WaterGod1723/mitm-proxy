@@ -6,6 +6,7 @@
 
 - 支持HTTP/HTTPS协议代理
 - 通过Lua脚本灵活配置请求重写规则
+- **支持多配置文件切换**
 - 支持代理服务器配置
 - 支持HTML页面注入
 - 配置文件热重载
@@ -17,7 +18,7 @@
 
 1. 进入示例目录
 ```bash
-cd /Users/admin/code/go/mitm-proxy/examples
+cd /Users/admin/code/go/mitm-proxy/examples/rewrite_by_lua
 ```
 
 2. 编译程序
@@ -30,12 +31,57 @@ go build -o main main.go
 ./main
 ```
 
-### 自定义监听地址
-
-可以通过`-addr`参数自定义代理服务地址：
+### 命令行参数
 
 ```bash
-./main -addr 0.0.0.0:8888
+./main -addr <监听地址> -config <配置文件>
+```
+
+参数说明：
+- `-addr`: 代理服务监听地址，默认 `0.0.0.0:8003`
+- `-config`: 配置文件路径，默认 `config.lua`
+
+### 使用不同配置文件
+
+程序支持多种方式指定配置文件：
+
+#### 1. 使用默认配置
+```bash
+./main
+# 使用 configs/default.lua
+```
+
+#### 2. 指定配置名称（在 configs 目录查找）
+```bash
+./main -config custom
+# 使用 configs/custom.lua
+```
+
+#### 3. 使用完整路径
+```bash
+./main -config /path/to/config.lua
+```
+
+### 预置配置文件
+
+`configs/` 目录下提供了以下预置配置：
+
+- `default.lua` - 默认配置（不指定 -config 参数时使用）
+- `custom.lua` - 自定义配置示例
+
+使用示例：
+```bash
+# 使用默认配置
+./main
+
+# 使用 custom 配置
+./main -config custom
+```
+
+### 自定义监听地址
+
+```bash
+./main -addr 0.0.0.0:8888 -config dev
 ```
 
 ## 证书配置
@@ -59,7 +105,22 @@ cd cert
 
 ## 配置文件说明
 
-配置文件`config.lua`支持以下功能：
+### 目录结构
+
+```
+rewrite_by_lua/
+├── main.go              # 主程序
+├── configs/             # 配置文件目录
+│   ├── default.lua      # 默认配置
+│   ├── custom.lua       # 自定义配置示例
+│   └── README.md        # 配置使用说明
+├── mock/                # Mock 数据目录
+│   └── user_info.json   # 示例 mock 数据
+├── inject.html          # HTML 注入文件
+└── cert/                # 证书目录
+```
+
+配置文件 `configs/*.lua` 支持以下功能：
 
 ### 1. 请求重写 (`GoRequest`)
 
@@ -101,6 +162,46 @@ function GoInject(host)
     end
     return ""
 end
+```
+
+## 创建新配置
+
+### 方法一：复制现有配置
+
+```bash
+cd configs
+cp default.lua staging.lua
+# 编辑 staging.lua 配置
+```
+
+### 方法二：从头创建
+
+在 `configs/` 目录下创建新的 `.lua` 文件，实现三个必需函数：
+
+```lua
+-- 必需：请求重写函数
+function GoRequest(protocol, host, path)
+    local bodyFilePath = ""
+    -- 您的重写逻辑
+    return protocol, host, path, bodyFilePath
+end
+
+-- 必需：代理配置函数
+function GoProxy(host)
+    -- 您的代理配置
+    return ''
+end
+
+-- 必需：HTML注入函数
+function GoInject(host)
+    -- 您的注入配置
+    return ""
+end
+```
+
+使用新配置：
+```bash
+./main -config staging
 ```
 
 ## 浏览器代理设置
