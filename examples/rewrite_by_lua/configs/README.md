@@ -45,6 +45,29 @@ vim configs/staging.lua
 
 修改配置文件后，程序会自动检测并重启，无需手动重启。
 
+## 常用的请求类别判断 lua 代码
+### 是否是Api请求
+```lua
+local secFetchDest = headers["Sec-Fetch-Dest"] or headers["sec-fetch-dest"]
+return secFetchDest == "empty"
+```
+### 是否是图片请求
+```lua
+local secFetchDest = headers["Sec-Fetch-Dest"] or headers["sec-fetch-dest"]
+return secFetchDest == "image"
+```
+
+### 是否是css请求
+```lua
+local secFetchDest = headers["Sec-Fetch-Dest"] or headers["sec-fetch-dest"]
+return secFetchDest == "style"
+```
+### 是否是js请求
+```lua
+local secFetchDest = headers["Sec-Fetch-Dest"] or headers["sec-fetch-dest"]
+return secFetchDest == "script"
+```
+
 ## 注意事项
 
 - 配置文件必须是有效的 Lua 脚本
