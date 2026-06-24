@@ -34,6 +34,7 @@ type Container struct {
 	manageRouter map[string]func(w *ResponseWriter, r *http.Request)
 	port         string
 	localIPs     map[string]struct{} // 防止请求形成环路
+	logEnabled   bool                // 是否打印请求、连接日志
 
 	processProxy    func(req *http.Request) ProxyArray
 	processRequest  func(req *http.Request) ResponseWriteFunc
@@ -41,7 +42,7 @@ type Container struct {
 	insertHTMLFn    func(resp *http.Response) error
 
 	listener net.Listener
-	stopOnce sync.Once
+	closed   bool
 }
 
 type MyRequest struct {
@@ -58,6 +59,18 @@ func NewMITM() *Container {
 	}
 }
 
+func (c *Container) logPrintf(format string, v ...interface{}) {
+	if c.logEnabled {
+		log.Printf(format, v...)
+	}
+}
+
+func (c *Container) logPrintln(v ...interface{}) {
+	if c.logEnabled {
+		log.Println(v...)
+	}
+}
+
 func (c *Container) Start(addr string) {
 	var err error
 	c.localIPs, err = getLocalIPs()
@@ -65,15 +78,24 @@ func (c *Container) Start(addr string) {
 		log.Fatal(err)
 	}
 
-	c.listener, err = net.Listen("tcp", addr)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Println("some error", err)
-		time.Sleep(time.Second * 10)
 		return
 	}
 
 	c.port = strings.Split(addr, ":")[1]
 	log.Println("server on http://localhost:" + c.port)
+
+	c.mu.Lock()
+	c.listener = listener
+	if c.closed {
+		c.listener.Close()
+		c.listener = nil
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
 
 	for {
 		conn, err := c.listener.Accept()
@@ -89,11 +111,23 @@ func (c *Container) Start(addr string) {
 }
 
 func (c *Container) Stop() {
-	c.stopOnce.Do(func() {
-		if c.listener != nil {
-			c.listener.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return
+	}
+	c.closed = true
+
+	if c.listener != nil {
+		c.listener.Close()
+	}
+
+	for _, connector := range c.connectors {
+		if connector.client.conn != nil {
+			(*connector.client.conn).Close()
 		}
-	})
+	}
 }
 
 func (c *Container) addConnector(clientConn *net.Conn) {
@@ -130,14 +164,15 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 		}
 	}()
 	c.connectors[id] = &connector
+	closed := c.closed
 	c.mu.Unlock()
-	log.Printf("conn++: %d\n", c.count)
+	c.logPrintf("conn++: %d\n", c.count)
 
 	defer func() {
 		c.mu.Lock()
 		delete(c.connectors, id)
 		c.count--
-		log.Printf("conn--: %d\n", c.count)
+		c.logPrintf("conn--: %d\n", c.count)
 		c.mu.Unlock()
 
 		for key, server := range connector.server {
@@ -148,6 +183,10 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 		(*clientConn).Close()
 		close(connector.clientWriteCh)
 	}()
+
+	if closed {
+		(*clientConn).Close()
+	}
 
 	connector.ReadRequest(func(req *http.Request, isWs bool) {
 		defer func() {
@@ -277,7 +316,7 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 					req.URL.Scheme = "http"
 				}
 			}
-			log.Println((*connector.client.conn).RemoteAddr(), req.URL, resp.Status)
+			c.logPrintln((*connector.client.conn).RemoteAddr(), req.URL, resp.Status)
 		}
 		if isWs {
 			w()
@@ -288,11 +327,11 @@ func (c *Container) addConnector(clientConn *net.Conn) {
 			}
 			if resp.StatusCode == http.StatusSwitchingProtocols {
 				(*connector.client.conn).SetDeadline(time.Now().Add(time.Hour * 24))
-				log.Printf("websocket connected: ws%s://%s\n", s, req.Host)
+				c.logPrintf("websocket connected: ws%s://%s\n", s, req.Host)
 				go io.Copy(&connector.client, server)
 				io.Copy(server, &connector.client)
 			} else {
-				log.Printf("websocket connect error: ws%s://%s\n", s, req.Host)
+				c.logPrintf("websocket connect error: ws%s://%s\n", s, req.Host)
 			}
 		} else {
 			connector.clientWriteCh <- w
@@ -312,6 +351,12 @@ func (c *Container) HandleFunc(pattern string, handleFunc func(w *ResponseWriter
 // 设置代理
 func (c *Container) SetProxy(fn func(req *http.Request) ProxyArray) *Container {
 	c.processProxy = fn
+	return c
+}
+
+// SetLogEnabled 设置是否打印请求、连接日志；默认关闭，需显式开启
+func (c *Container) SetLogEnabled(enabled bool) *Container {
+	c.logEnabled = enabled
 	return c
 }
 

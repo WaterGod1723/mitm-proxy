@@ -71,6 +71,11 @@ func main() {
 			}
 			return func(w *core.ResponseWriter) error {
 				w.SetStatus(http.StatusOK)
+				for key, values := range newHeaders {
+					for _, value := range values {
+						w.Header().Set(key, value)
+					}
+				}
 				w.Write(f)
 				return nil
 			}
@@ -441,6 +446,9 @@ esac
   --ignore-certificate-errors \
   --no-first-run \
   --no-default-browser-check \
+  --disable-web-security \
+  --disable-features=SameSiteByDefaultCookies \
+  --disable-site-isolation-trials \
   "$@"
 `
 

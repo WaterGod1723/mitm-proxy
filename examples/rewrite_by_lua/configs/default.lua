@@ -1,4 +1,4 @@
-local portalServer = "web.amh-group.com:8001"
+local portalServer = "web.amh-group.com:8000"
 -- 核心为GoRequest函数和GoProxy，go中会调用这两个脚本函数对请求、代理进行重写或者设置
 
 --- GoRequest 函数用于重写HTTP/HTTPS请求的协议、主机、路径和请求头
@@ -9,7 +9,7 @@ local portalServer = "web.amh-group.com:8001"
 -- @return protocol string 重写后的协议
 -- @return host string 重写后的主机
 -- @return path string 重写后的路径
--- @return bodyFilePath string (可选) 用于替换响应体的本地文件路径，不指定则正常转发请求
+-- @return bodyFilePath string (可选) 用于替换响应体的本地文件路径，不指定则正常转发请求；当有值时，返回的 headers 会被写入响应头
 -- @return headers table (可选) 修改后的请求头表，返回nil或空表保持原请求头不变
 -- @description 该函数会在每次请求到达代理服务器时被调用，允许根据请求的协议、主机、路径和请求头进行灵活的重写
 --              可以用于实现环境切换、路径重定向、请求头修改、响应mock等功能
