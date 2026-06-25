@@ -1,0 +1,68 @@
+<script>
+  ; (function () {
+    // 适配 vite 开发环境下的 es 模块的 src 属性
+
+    const originalCreateElement = document.createElement.bind(document)
+
+    const matchers = [/src\/.+\.(js|jsx|ts|tsx)$/]
+
+    const isTargetSrc = (src) => {
+      if (!src) return false
+      return matchers.some((m) => {
+        if (typeof m === 'function') return !!m(src)
+        if (m instanceof RegExp) return m.test(src)
+        return src === m
+      })
+    }
+
+    class ModuleScript extends HTMLScriptElement {
+      static #locking = false; // 防止递归
+
+      constructor() {
+        super();
+      }
+
+      connectedCallback() {
+        // 挂载到 DOM 时强制 type = "module"
+        this.type = 'module';
+      }
+
+      // 拦截 type 属性的读写
+      static get observedAttributes() {
+        return ['type'];
+      }
+
+      attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'type' && newVal !== 'module' && !ModuleScript.#locking) {
+          ModuleScript.#locking = true;
+          this.setAttribute('type', 'module');
+          ModuleScript.#locking = false;
+        }
+      }
+
+
+      set type(val) {
+        if (isTargetSrc(this.src)) {
+          super.type = 'module';
+          return
+        }
+        super.type = val;
+      }
+    }
+    // 注册为自定义内置元素
+    customElements.define('module-script', ModuleScript, { extends: 'script' });
+
+
+    document.createElement = function (tagName, options) {
+      const el = options
+        ? originalCreateElement(tagName, options)
+        : originalCreateElement(tagName)
+
+      if (typeof tagName !== 'string' || tagName.toLowerCase() !== 'script') {
+        return el
+      }
+      // 替换为自定义元素
+      return new ModuleScript(tagName, options)
+    }
+  })()
+</script>
